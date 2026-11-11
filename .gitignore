@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+sw.log
+sw.log.*
+config.json
+_hover_preview.png
