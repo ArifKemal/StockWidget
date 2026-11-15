@@ -31,9 +31,10 @@ Kurulum yönetici hakkı istemez; program kullanıcı hesabına kurulur.
 
 ### Portatif kullanım
 
-ZIP'i bir klasöre açıp `StockWidget.exe` dosyasını çalıştırın. Varsayılan olarak
-ayarlar yine `%APPDATA%\StockWidget` altında tutulur. Gerçek portatif davranış
-(ayarların exe yanında kalması) için:
+ZIP'i bir klasöre açıp `StockWidget.exe` dosyasını çalıştırın. ZIP kökünde
+`README.md`, `LICENSE` ve `docs/` ekran görüntüleri de bulunur; çevrimdışıyken de
+dokümana erişebilirsiniz. Varsayılan olarak ayarlar yine `%APPDATA%\StockWidget`
+altında tutulur. Gerçek portatif davranış (ayarların exe yanında kalması) için:
 
 ```powershell
 $env:SW_DATA_DIR = "$PWD\veri"

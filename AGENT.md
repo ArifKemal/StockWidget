@@ -167,6 +167,14 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
     - GitHub'da `v1.0.0` etiketiyle Release #2 başarıyla yayınlandı; portatif ZIP'in
       SHA-256'sı indirilerek doğrulandı (`b1766a8e…`), kurulum paketi de aynı iş
       akışında üretildi.
+    - Repo metadata: açıklama, homepage (`releases/latest`) ve topics API ile
+      ayarlandı (`gh` gerekmeden, git kimlik bilgisindeki token kullanıldı).
+    - Release ZIP düzeltmesi: `v1.0.0` asseti README/LICENSE içermiyordu (workflow
+      düzeltmesi etiketten sonra geldi). Doğrulanmış exe bozulmadan ZIP'e
+      `README.md`, `LICENSE` ve `docs/` eklendi; asset değiştirildi
+      (`sha256:bc34995d…`). `Compress-Archive` (PS 5.1) ters eğik çizgi yazdığı
+      için ZIP, `/` ayırıcı kullanan Python `zipfile` ile üretildi — ileride yerel
+      paketlemede buna dikkat.
     - Doğrulama: 13 test, kaynak ve exe `--version`/`--toggle`/`--quit`, exe'nin
       `%APPDATA%` yerine `SW_DATA_DIR`'a config+log yazması, ISCC derlemesi.
       Kurulumun sessiz çalıştırılması bu makinede güvenlik ilkesi nedeniyle
