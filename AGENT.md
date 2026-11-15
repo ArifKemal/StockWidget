@@ -20,6 +20,7 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `install_startup.ps1` / `uninstall_startup.ps1` — eski kaynak modu otostart betikleri
 - `requirements.txt` — requests, pystray, pillow (pystray/pillow opsiyonel)
 - `docs/ekran-ana.png`, `docs/ekran-detay.png` — README ekran görüntüleri
+- `docs/imzalama.md` — kod imzalama (SmartScreen / SignPath) durumu ve adımları
 - `config.json` / `sw.log` — kaynak modunda çalışma zamanı dosyaları, `.gitignore`'da
 - `%APPDATA%\StockWidget\` — kurulu/portatif sürümde ayar + log (SW_DATA_DIR ile değiştirilebilir)
 - `build/`, `dist/`, `Output/` — derleme çıktıları, `.gitignore`'da
@@ -179,6 +180,23 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       `%APPDATA%` yerine `SW_DATA_DIR`'a config+log yazması, ISCC derlemesi.
       Kurulumun sessiz çalıştırılması bu makinede güvenlik ilkesi nedeniyle
       denenemedi; betik ISCC ile hatasız derlendi.
+17. **Kurulum ön kontrolü + kısıtlı makine desteği** —
+    - Bu makinede kurulumun sessizce ölmesinin nedeni bulundu: Inno, destek
+      dosyalarını `%TEMP%`'e açamıyordu (`Error 5`). `TEMP`/`TMP` yazılabilir bir
+      klasöre alınınca kurulum dosyaları kopyaladı; ancak setup sürecine
+      Başlat menüsü klasörü, kısayol (`IPersistFile::Save`) ve HKCU yazımı
+      politika ile engellendi (`Error 5`). Yani sorun betikte değil, ortamda.
+    - `installer.iss`: `PrepareToInstall` artık `{app}` ve HKCU yazılabilirliğini
+      deniyor; engellenmişse ham hata yerine Türkçe mesaj + portatif ZIP önerisi
+      verip temiz çıkıyor (oluşturduğu boş klasörü siliyor). `[Icons]` girdileri
+      `CanCreateShortcuts` / `CanCreateDesktopIcon` ile korunuyor: kısayol
+      yazılamazsa kurulum düşmüyor, `ssPostInstall`'da bilgi kutusu çıkıyor.
+    - Notlar: ISPP satır başındaki `#13#10`'ı preprocessor direktifi sanıyor;
+      Pascal Script'te yerel `const` bölümü desteklenmiyor (`var` kullan).
+    - README sorun giderme: `Error 5`, `%TEMP%` izni ve "kısayol oluşmadı ama
+      kuruldu" başlıkları eklendi.
+    - `Output/StockWidget-1.0.0-setup.exe` yeniden derlendi ve Release asseti
+      değiştirildi (sürüm aynı; yalnızca kurulum betiği iyileşti).
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

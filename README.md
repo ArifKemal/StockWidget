@@ -27,7 +27,8 @@ Kurulum yönetici hakkı istemez; program kullanıcı hesabına kurulur.
 
 > **SmartScreen uyarısı.** Dosyalar kod imzalı değil. "Windows korumalı bilgisayarınızı
 > korudu" penceresinde **Ek bilgi → Yine de çalıştır** deyin. Kaynak koddan kendiniz
-> derlerseniz uyarı çıkmaz.
+> derlerseniz uyarı çıkmaz. İmzalama durumu ve ücretsiz SignPath başvuru adımları:
+> [docs/imzalama.md](docs/imzalama.md).
 
 ### Portatif kullanım
 
@@ -206,6 +207,9 @@ python -m PyInstaller --noconfirm --clean StockWidget.spec
 - `StockWidget.spec`: onedir, `--noconsole`, `stock.ico`, sürüm bilgisi.
 - `installer.iss`: kullanıcı bazlı kurulum, kısayollar, isteğe bağlı otostart,
   yükseltmede çalışan kopyayı `--quit` ile kapatma, kaldırmada ayarları koruma.
+  Ayrıca **ön kontrol** yapar: `{app}` klasörü ve HKCU yazılamıyorsa ham
+  "Error 5" yerine ne yapılacağını söyleyen mesaj verip portatif ZIP'i önerir;
+  Başlat menüsü/masaüstü yazılamıyorsa kısayolları atlar, kurulumu düşürmez.
 - `tools/bump_version.py`: sürümü `stock_widget.py` ve `version_info.txt`'e yazar.
 - `tools/screenshot.py`: README görsellerini gerçek uygulamadan üretir.
 - `--paths` bayrağı ayar/log dosyasının nerede olduğunu yazdırır.
@@ -234,6 +238,16 @@ Sürüm numarası etiketten alınır; ayrıca elle güncellemek gerekmez.
   menüsünde "kaydedilemedi" yazar.
 - **Kurulumda dosya kilitli:** çalışan kopyayı kapatın (`StockWidget.exe --quit`)
   ve kurulumu yeniden deneyin.
+- **Kurulum "Error 5: Access is denied" diyor:** Makine kurumsal bir politikayla
+  kısıtlanmış olabilir (Başlat menüsü, kısayol veya kayıt defteri yazımı engelli).
+  Kurulum paketi bunu önceden algılayıp hangi adımın engellendiğini söyler ve
+  portatif ZIP'i önerir; yönetici hakkı bu tür kısıtlamayı aşmaz.
+- **Kurulum "%TEMP% ... Access is denied" diyor:** `TEMP`/`TMP` klasörü
+  yazılamıyor. Kurulumu yazılabilir bir geçici dizinle çalıştırın:
+  `set TEMP=C:\Temp&& set TMP=C:\Temp&& StockWidget-1.0.0-setup.exe`
+- **Kısayol oluşmadı ama program kuruldu:** Başlat menüsü/masaüstü yazılamamış
+  olabilir; kurulum düşmez, uyarı gösterir. Programı doğrudan
+  `%LOCALAPPDATA%\Programs\StockWidget\StockWidget.exe` ile açın.
 - **Bir şey ters gitti:** `%APPDATA%\StockWidget\sw.log` dosyasına bakın;
   başlangıç, çıkış, fetch hataları ve beklenmeyen istisnalar orada.
 
