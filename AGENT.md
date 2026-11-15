@@ -164,6 +164,9 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       `release.yml` `v*` etiketinde portatif ZIP + kurulum paketini Release'e ekler.
     - `LICENSE` (MIT), README indirme-önce yeniden yazıldı, `docs/` ekran görüntüleri
       `tools/screenshot.py` ile üretildi.
+    - GitHub'da `v1.0.0` etiketiyle Release #2 başarıyla yayınlandı; portatif ZIP'in
+      SHA-256'sı indirilerek doğrulandı (`b1766a8e…`), kurulum paketi de aynı iş
+      akışında üretildi.
     - Doğrulama: 13 test, kaynak ve exe `--version`/`--toggle`/`--quit`, exe'nin
       `%APPDATA%` yerine `SW_DATA_DIR`'a config+log yazması, ISCC derlemesi.
       Kurulumun sessiz çalıştırılması bu makinede güvenlik ilkesi nedeniyle

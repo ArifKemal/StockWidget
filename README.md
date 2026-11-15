@@ -15,8 +15,8 @@ pencerede. Arayüz Türkçe.
 
 | Ne | Kim için | Dosya |
 |---|---|---|
-| **Kurulum paketi** (önerilen) | Herkes | [Releases](https://github.com/ArifKemal/StockWidget/releases) → `StockWidget-1.0.0-setup.exe` |
-| **Portatif ZIP** | Kurulum istemeyen | `StockWidget-1.0.0-portable.zip` |
+| **Kurulum paketi** (önerilen) | Herkes | [Releases](https://github.com/ArifKemal/StockWidget/releases/latest) → `StockWidget-<sürüm>-setup.exe` |
+| **Portatif ZIP** | Kurulum istemeyen | `StockWidget-<sürüm>-portable.zip` |
 | **Kaynak** | Python bilen | `git clone` + `pip install -r requirements.txt` |
 
 Kurulum yönetici hakkı istemez; program kullanıcı hesabına kurulur.

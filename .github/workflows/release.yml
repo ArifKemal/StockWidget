@@ -48,6 +48,7 @@ jobs:
       - name: Portatif ZIP
         shell: pwsh
         run: |
+          Copy-Item README.md, LICENSE -Destination dist\StockWidget -Force
           Compress-Archive -Path dist\StockWidget\* `
             -DestinationPath "StockWidget-$env:APP_VERSION-portable.zip"
 
