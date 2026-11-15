@@ -175,7 +175,7 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       `README.md`, `LICENSE` ve `docs/` eklendi; asset değiştirildi
       (`sha256:bc34995d…`). `Compress-Archive` (PS 5.1) ters eğik çizgi yazdığı
       için ZIP, `/` ayırıcı kullanan Python `zipfile` ile üretildi — ileride yerel
-      paketlemede buna dikkat.
+      paketlemede buna dikkat. CI'daki `pwsh` bu sorunu yaşamaz.
     - Doğrulama: 13 test, kaynak ve exe `--version`/`--toggle`/`--quit`, exe'nin
       `%APPDATA%` yerine `SW_DATA_DIR`'a config+log yazması, ISCC derlemesi.
       Kurulumun sessiz çalıştırılması bu makinede güvenlik ilkesi nedeniyle
@@ -196,7 +196,10 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
     - README sorun giderme: `Error 5`, `%TEMP%` izni ve "kısayol oluşmadı ama
       kuruldu" başlıkları eklendi.
     - `Output/StockWidget-1.0.0-setup.exe` yeniden derlendi ve Release asseti
-      değiştirildi (sürüm aynı; yalnızca kurulum betiği iyileşti).
+      değiştirildi (sürüm aynı; yalnızca kurulum betiği iyileşti,
+      `sha256:14732457…`).
+    - Portatif ZIP son hâli: repo dokümanlarıyla eşitlendi (`README.md`,
+      `LICENSE`, `docs/*.md` + ekran görüntüleri), `sha256:64b9c458…`.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat
