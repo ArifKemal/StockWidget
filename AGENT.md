@@ -1,13 +1,28 @@
 # AGENTS.md — Borsa Widget (StockWidget)
 
-Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması, iki sembol takip eder
-(ONDS, BRUN), Yahoo Finance'in ücretsiz chart endpoint'ini kullanır. UI metinleri Türkçe, UTF-8.
+Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol listesi
+`config.json`'dan gelir (varsayılan AAPL, MSFT, NVDA, GOOGL, AMZN), Yahoo Finance'in
+ücretsiz chart endpoint'ini kullanır. UI metinleri Türkçe, UTF-8.
 
 ## Dosyalar
-- `stock_widget.py` — uygulamanın tamamı (UI, veri çevrimi, tray, kısayol, otomatik başlatma)
-- `README.md` — kullanıcı dokümanı (kurulum, kullanım, sorun giderme)
-- `toggle.vbs` — masaüstündeki "Borsa Widget" kısayolunun hedefi: çalışıyorsa kapatır, kapalıysa başlatır
-- `__pycache__/` — derleme çıktısı, elle düzenlenmez
+- `stock_widget.py` — uygulamanın tamamı (UI, veri çevrimi, tray, kısayol, portföy, otomatik başlatma)
+- `README.md` — kullanıcı dokümanı (indirme, kurulum, kullanım, derleme, sorun giderme)
+- `AGENT.md` — bu dosya: mimari kurallar + değişiklik günlüğü
+- `test_stock_widget.py` — stdlib `unittest` birim testleri (ağa çıkmaz)
+- `LICENSE` — MIT (2026 Arif Kemal)
+- `StockWidget.spec` — PyInstaller onedir derleme tanımı
+- `installer.iss` — Inno Setup 6 kullanıcı bazlı kurulum betiği
+- `version_info.txt` — exe sürüm bilgisi (PyInstaller)
+- `tools/bump_version.py` — sürümü kaynak + version_info'ya yazar
+- `tools/screenshot.py` — README görsellerini gerçek uygulamadan üretir
+- `.github/workflows/ci.yml` / `release.yml` — test+derleme / etiketli sürüm
+- `toggle.vbs` — kaynak modunda masaüstü kısayolu (kurulu sürümde `StockWidget.exe --toggle`)
+- `install_startup.ps1` / `uninstall_startup.ps1` — eski kaynak modu otostart betikleri
+- `requirements.txt` — requests, pystray, pillow (pystray/pillow opsiyonel)
+- `docs/ekran-ana.png`, `docs/ekran-detay.png` — README ekran görüntüleri
+- `config.json` / `sw.log` — kaynak modunda çalışma zamanı dosyaları, `.gitignore`'da
+- `%APPDATA%\StockWidget\` — kurulu/portatif sürümde ayar + log (SW_DATA_DIR ile değiştirilebilir)
+- `build/`, `dist/`, `Output/` — derleme çıktıları, `.gitignore`'da
 
 ## Mimari kuralları (bozmadan değişiklik yap)
 - **Tk tek thread.** Ağ işi `fetch_loop` thread'inde döner; sonuçlar `self.queue`'ya yazılır,
@@ -19,7 +34,21 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması, iki se
   `self.hotkey_queue` (kısayol olayları: `registered` / `unavailable` / `toggle`).
 - Döngüler `self.stop_flag` (threading.Event) ile durur; çıkışta thread'ler daemon olduğu için
   süreç sonlanır, kaynaklar (hotkey kaydı, mutex) serbest kalır.
-- Tek örnek: `acquire_single_instance()` adlandırılmış mutex. İkinci kopya sessizce çıkar.
+- Tek örnek: `acquire_single_instance()` adlandırılmış mutex. İkinci kopya `--toggle`
+  ise `TOGGLE_EVENT`'i, `--quit` ise `QUIT_EVENT`'i işaretler (`request_signal`),
+  aksi halde sessizce çıkar. Ana kopya `signal_watch_loop` ile
+  `WaitForMultipleObjects` üzerinden bu olayları `hotkey_queue`'ya aktarır.
+- **Donmuş (exe) mod ayrımı:** `FROZEN` iken `ASSET_DIR` = `sys._MEIPASS` (ikon,
+  README, LICENSE), kalıcı veri `DATA_DIR` = `%APPDATA%\StockWidget` (veya
+  `SW_DATA_DIR`). Kaynak modunda `ASSET_DIR` = proje klasörü. Eski script yanındaki
+  `config.json` ilk açılışta `migrate_legacy_config()` ile taşınır. Otostart
+  komutu `app_launch_command()`: donmuşta exe, kaynakta `pythonw + script`.
+- **Kurulum ve sinyaller:** Inno `PrepareToInstall` yükseltmeden önce
+  `StockWidget.exe --quit` çalıştırır; `[UninstallRun]` aynısını yapar. `--quit`
+  mutex'ten önce işlenir; çalışan kopya yoksa uygulamayı başlatmadan çıkar.
+  `poll_queue` "quit" olayında `exit_app()` çağırıp `return` eder; `finally`
+  bloğu `stop_flag` set edildiğinde `root.after` planlamaz (destroy sonrası
+  `TclError` yok).
 - Pencere gizleme tek yol: `hide_window()` (detay panelini de kapatır). `root.withdraw()`'ı
   doğrudan çağırma — açık detay paneli ekranda asılı kalır.
 - **Tema renkleri modül globalleridir.** `apply_palette(name)` bunları `globals()` ile
@@ -111,6 +140,34 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması, iki se
     `poll_queue` hataları `log.exception`, fetch hataları `log.warning`.
     `test_stock_widget.py` stdlib `unittest` (tatiller, fmt, palet, config, render,
     downsample); `.gitignore` + git deposu.
+15. **Doküman tazeleme** — README baştan yazıldı: portföy, tema/opaklık/yoğunluk,
+    mum/çizgi + hacim, hover okuması, tray/kısayol davranışı, `config.json` anahtar
+    tablosu, gerçek dosya listesi, sınırlar ve sorun giderme. Kodla çelişen iki nokta
+    düzeltildi: hacim çubukları **çizgi** modunda çizilir (mum modunda değil), seri
+    seyreltme 1H/1A/1Y için 150, gün içi için 60 nokta. AGENT.md dosya listesi
+    güncellendi; "iki sembol takip eder (ONDS, BRUN)" yerine `config.json`'dan gelen
+    liste yazıldı (bugünkü varsayılan: AAPL, MSFT, NVDA, GOOGL, AMZN).
+16. **Dağıtım / herkesin kullanabileceği sürüm** —
+    - Exe/donmuş mod: `APP_NAME`, `APP_VERSION`, `FROZEN`, `ASSET_DIR`, `ICON_FILE`,
+      `_data_dir()` (`SW_DATA_DIR` override), `DATA_DIR`/`CONFIG_FILE`/`LOG_FILE`,
+      `migrate_legacy_config()`, exe'ye uygun `set_startup()`.
+    - `--toggle` / `--quit` / `--version` / `--paths`; `TOGGLE_EVENT` + `QUIT_EVENT`
+      isimli Win32 olayları, `signal_watch_loop` (`WaitForMultipleObjects`).
+      İkinci kopya sinyal gönderip çıkar; `--quit` mutex'ten önce işlenir.
+    - `poll_queue` "quit" olayını işler ve destroy sonrası `root.after` planlamaz.
+      Tepsi başlatma hatası uygulamayı düşürmez (`_tray_run` loglar).
+    - Paketleme: `StockWidget.spec` (PyInstaller onedir, `--noconsole`, ikon, sürüm),
+      `installer.iss` (Inno Setup 6, kullanıcı bazlı `%LOCALAPPDATA%\Programs\StockWidget`,
+      kısayollar, isteğe bağlı otostart, yükseltmede `--quit`, kaldırmada ayarları korur),
+      `version_info.txt`, `tools/bump_version.py`.
+    - CI/release: `.github/workflows/ci.yml` her push'ta test + PyInstaller;
+      `release.yml` `v*` etiketinde portatif ZIP + kurulum paketini Release'e ekler.
+    - `LICENSE` (MIT), README indirme-önce yeniden yazıldı, `docs/` ekran görüntüleri
+      `tools/screenshot.py` ile üretildi.
+    - Doğrulama: 13 test, kaynak ve exe `--version`/`--toggle`/`--quit`, exe'nin
+      `%APPDATA%` yerine `SW_DATA_DIR`'a config+log yazması, ISCC derlemesi.
+      Kurulumun sessiz çalıştırılması bu makinede güvenlik ilkesi nedeniyle
+      denenemedi; betik ISCC ile hatasız derlendi.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat
@@ -118,4 +175,23 @@ cd "C:\Users\<kullanıcı>\Desktop\StockWidget"
 python -m py_compile stock_widget.py
 python -m unittest test_stock_widget.py
 set SW_SMOKE=1 && python stock_widget.py   :: 12 sn sonra kendini kapatır (duman testi)
-wscript toggle.vbs                          :: TEK çağrı; çalışıyorsa kapatır, kapalıysa açar
+python stock_widget.py --version
+python stock_widget.py --toggle            :: çalışan kopyayı göster/gizle
+python stock_widget.py --quit              :: temiz çıkış
+
+:: paketleme (yerel)
+python -m PyInstaller --noconfirm --clean StockWidget.spec
+dist\StockWidget\StockWidget.exe --version
+dist\StockWidget\StockWidget.exe --paths
+
+:: kurulum paketi (Inno Setup 6 kuruluysa)
+& "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer.iss
+```
+
+`SW_DATA_DIR` ile ayar/log dizinini geçici bir klasöre alıp gerçek `%APPDATA%`
+verisini kirletmeden test et:
+
+```powershell
+$env:SW_DATA_DIR = "$env:TEMP\sw_test"
+python stock_widget.py
+```

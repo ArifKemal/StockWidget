@@ -7,6 +7,7 @@ import ctypes
 import ctypes.wintypes
 import datetime
 import logging
+import shutil
 import threading
 import traceback
 import tkinter as tk
@@ -27,11 +28,43 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
-LOG_FILE = os.path.join(BASE_DIR, "sw.log")
+APP_NAME = "StockWidget"
+APP_VERSION = "1.0.0"
+FROZEN = bool(getattr(sys, "frozen", False))
+
+# PyInstaller: kod _MEIPASS'e açılır, kalıcı veri oraya yazılamaz.
+ASSET_DIR = (getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
+             if FROZEN else os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = ASSET_DIR
+ICON_FILE = os.path.join(ASSET_DIR, "stock.ico")
+
+
+def _data_dir():
+    """Kalıcı ayar/log dizini: %APPDATA%\\StockWidget (yazılamazsa yanına düş)."""
+    override = os.environ.get("SW_DATA_DIR")
+    base = override or os.path.join(
+        os.environ.get("APPDATA") or os.path.expanduser("~"), APP_NAME)
+    try:
+        os.makedirs(base, exist_ok=True)
+    except OSError:
+        base = ASSET_DIR
+    return base
+
+
+DATA_DIR = _data_dir()
+CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
+LOG_FILE = os.path.join(DATA_DIR, "sw.log")
+# Eski sürümler config'i script/exe yanına yazıyordu; ilk açılışta taşınır.
+LEGACY_CONFIG = os.path.join(
+    os.path.dirname(os.path.abspath(sys.executable)) if FROZEN else BASE_DIR,
+    "config.json")
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_NAME = "StockWidget"
+
+# İkinci kopya --toggle/--quit ile bu isimli olayları işaretler; ana pencere dinler.
+TOGGLE_EVENT = "Local\\StockWidgetToggleEvent"
+QUIT_EVENT = "Local\\StockWidgetQuitEvent"
+EVENT_MODIFY_STATE = 0x0002
 
 log = logging.getLogger("stockwidget")
 
@@ -49,6 +82,16 @@ def setup_logging():
         log.addHandler(handler)
     except OSError:
         pass
+
+def migrate_legacy_config():
+    """Eski sürümün yanındaki config.json'ı kalıcı dizine taşır (bir kez)."""
+    if os.path.exists(CONFIG_FILE) or not os.path.exists(LEGACY_CONFIG):
+        return
+    try:
+        shutil.copy2(LEGACY_CONFIG, CONFIG_FILE)
+    except OSError:
+        pass
+
 
 API_URL = ("https://query1.finance.yahoo.com/v8/finance/chart/"
            "{s}?interval=5m&range=1d")
@@ -374,17 +417,23 @@ def startup_enabled():
         return False
 
 
+def app_launch_command():
+    """Otomatik başlatma için komut: exe ise exe, kaynak ise pythonw + script."""
+    if FROZEN:
+        return '"%s"' % sys.executable
+    pyw = sys.executable
+    if pyw.lower().endswith("python.exe"):
+        pyw = pyw[:-10] + "pythonw.exe"
+    return '"%s" "%s"' % (pyw, os.path.join(BASE_DIR, "stock_widget.py"))
+
+
 def set_startup(enabled):
     try:
         import winreg
         if enabled:
-            pyw = sys.executable
-            if pyw.lower().endswith("python.exe"):
-                pyw = pyw[:-10] + "pythonw.exe"
-            app = os.path.join(BASE_DIR, "stock_widget.py")
-            cmd = '"%s" "%s"' % (pyw, app)
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
-                winreg.SetValueEx(k, RUN_NAME, 0, winreg.REG_SZ, cmd)
+                winreg.SetValueEx(k, RUN_NAME, 0, winreg.REG_SZ,
+                                  app_launch_command())
         else:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0,
                                 winreg.KEY_SET_VALUE) as k:
@@ -407,6 +456,87 @@ def acquire_single_instance():
         return handle
     except Exception:
         return 1
+
+
+def create_signal_event(name):
+    """Çalışan kopyanın dinleyeceği isimli olayı oluşturur."""
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CreateEventW.restype = ctypes.c_void_p
+        kernel32.CreateEventW.argtypes = [ctypes.c_void_p, ctypes.c_bool,
+                                          ctypes.c_bool, ctypes.c_wchar_p]
+        return kernel32.CreateEventW(None, False, False, name)
+    except Exception:
+        return None
+
+
+def request_signal(name, retries=20):
+    """Çalışan kopyaya sinyal gönderir; olay yoksa False döner."""
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenEventW.restype = ctypes.c_void_p
+        kernel32.OpenEventW.argtypes = [ctypes.c_uint32, ctypes.c_bool,
+                                        ctypes.c_wchar_p]
+        kernel32.SetEvent.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        for _ in range(retries):
+            handle = kernel32.OpenEventW(EVENT_MODIFY_STATE, False, name)
+            if handle:
+                try:
+                    kernel32.SetEvent(ctypes.c_void_p(handle))
+                    return True
+                finally:
+                    kernel32.CloseHandle(ctypes.c_void_p(handle))
+            time.sleep(0.1)
+    except Exception:
+        pass
+    return False
+
+
+def request_toggle(retries=20):
+    """Çalışan kopyaya göster/gizle sinyali gönder (yoksa False)."""
+    return request_signal(TOGGLE_EVENT, retries)
+
+
+def request_quit(retries=20):
+    """Çalışan kopyaya temiz çıkış sinyali gönder (yoksa False)."""
+    return request_signal(QUIT_EVENT, retries)
+
+
+def signal_watch_loop(targets, events, stop_flag):
+    """Ana kopyada çalışır; olayları ('toggle'/'quit') kuyruğa aktarır.
+
+    targets: [(handle, "toggle"), (handle, "quit")] — None handle'lar atlanır.
+    """
+    pairs = [(h, n) for h, n in targets if h]
+    if not pairs:
+        return
+    kernel32 = ctypes.windll.kernel32
+    handles = (ctypes.c_void_p * len(pairs))(
+        *[ctypes.c_void_p(h) for h, _ in pairs])
+    kernel32.WaitForMultipleObjects.argtypes = [
+        ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p), ctypes.c_bool,
+        ctypes.c_uint32]
+    kernel32.WaitForMultipleObjects.restype = ctypes.c_uint32
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    try:
+        while not stop_flag.is_set():
+            res = kernel32.WaitForMultipleObjects(len(pairs), handles, False,
+                                                  500)
+            if res == 258:  # WAIT_TIMEOUT
+                continue
+            if res == 0xFFFFFFFF:  # WAIT_FAILED
+                return
+            index = res  # WAIT_OBJECT_0 + i
+            if index >= len(pairs):
+                continue  # WAIT_ABANDONED: döngü devam etsin
+            name = pairs[index][1]
+            events.put(name)
+            if name == "quit":
+                return
+    finally:
+        for h, _ in pairs:
+            kernel32.CloseHandle(ctypes.c_void_p(h))
 
 
 def hotkey_loop(events, stop_flag):
@@ -1834,7 +1964,7 @@ class StockWidget:
         dlg.resizable(False, False)
         dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
         try:
-            dlg.iconbitmap(os.path.join(BASE_DIR, "stock.ico"))
+            dlg.iconbitmap(ICON_FILE)
         except tk.TclError:
             pass
         dark_title_bar(dlg)
@@ -1985,7 +2115,7 @@ class StockWidget:
         dlg.resizable(False, False)
         dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
         try:
-            dlg.iconbitmap(os.path.join(BASE_DIR, "stock.ico"))
+            dlg.iconbitmap(ICON_FILE)
         except tk.TclError:
             pass
         dark_title_bar(dlg)
@@ -2174,6 +2304,10 @@ class StockWidget:
                     event = self.hotkey_queue.get_nowait()
                     if event == "toggle":
                         self.toggle_visibility()
+                    elif event == "quit":
+                        # --quit: tepsi/başlat menüsünden gelen temiz kapanış
+                        self.exit_app()
+                        return
                     elif event == "registered":
                         self._set_hotkey_hint(True)
                     elif event == "unavailable":
@@ -2190,7 +2324,11 @@ class StockWidget:
             # Bir istisna kuyruk döngüsünü kalıcı olarak durdurmasın
             log.exception("poll_queue hatası")
         finally:
-            self.root.after(200, self.poll_queue)
+            if not self.stop_flag.is_set():
+                try:
+                    self.root.after(200, self.poll_queue)
+                except tk.TclError:
+                    pass
 
     def fetch_loop(self):
         while not self.stop_flag.is_set():
@@ -2266,8 +2404,8 @@ class StockWidget:
             pystray.MenuItem("Çıkış",
                              lambda *a: self.root.after(0, self.exit_app)),
         )
-        return pystray.Icon("StockWidget", self._tray_image(), "StockWidget",
-                            menu)
+        return pystray.Icon("StockWidget", self._tray_image(),
+                            "%s %s" % (APP_NAME, APP_VERSION), menu)
 
     def _tray_toggle_startup(self):
         set_startup(not startup_enabled())
@@ -2282,7 +2420,15 @@ class StockWidget:
         if not (TRAY_AVAILABLE and PIL_AVAILABLE):
             return
         self.tray_icon = self._create_tray_icon()
-        threading.Thread(target=self.tray_icon.run, daemon=True).start()
+        threading.Thread(target=self._tray_run, daemon=True).start()
+
+    def _tray_run(self):
+        # Tepsi simgesi bazı oturumlarda (uzak masaüstü/servis) engellenebilir;
+        # bu durumda widget penceresi çalışmaya devam etmeli.
+        try:
+            self.tray_icon.run()
+        except Exception:
+            log.exception("tepsi simgesi başlatılamadı")
 
     def toggle_visibility(self, icon=None, item=None):
         if self.root.winfo_viewable():
@@ -2318,12 +2464,44 @@ class StockWidget:
 
 def main():
     setup_logging()
+    if "--version" in sys.argv:
+        try:
+            print("%s %s" % (APP_NAME, APP_VERSION))
+        except Exception:
+            pass
+        return
+    if "--paths" in sys.argv:
+        # Destek/hata ayıklama: hangi ayar ve log dosyası kullanılıyor?
+        try:
+            print(CONFIG_FILE)
+            print(LOG_FILE)
+        except Exception:
+            pass
+        return
+    if "--quit" in sys.argv:
+        # Kurulum/kaldırma ve kısayol: çalışan kopyayı kapat. Kopya yoksa
+        # uygulamayı başlatmadan sessizce çık.
+        request_quit()
+        return
     mutex = acquire_single_instance()
     if mutex is None:
-        log.info("ikinci kopya, çıkılıyor")
+        # Kurulu sürümde masaüstü kısayolu --toggle ile gelir.
+        if "--toggle" in sys.argv:
+            request_toggle()
+        else:
+            log.info("ikinci kopya, çıkılıyor")
         return
+    migrate_legacy_config()
     log.info("başladı (pid %s)", os.getpid())
+    toggle_event = create_signal_event(TOGGLE_EVENT)
+    quit_event = create_signal_event(QUIT_EVENT)
     app = StockWidget()
+    if toggle_event or quit_event:
+        threading.Thread(
+            target=signal_watch_loop,
+            args=([(toggle_event, "toggle"), (quit_event, "quit")],
+                  app.hotkey_queue, app.stop_flag),
+            daemon=True).start()
     app.root.mainloop()
 
 
