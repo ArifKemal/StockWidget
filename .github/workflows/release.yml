@@ -7,6 +7,9 @@ on:
 permissions:
   contents: write
 
+env:
+  PYTHONUTF8: "1"
+
 jobs:
   release:
     runs-on: windows-latest
@@ -24,12 +27,15 @@ jobs:
           python -m pip install -r requirements.txt pyinstaller
 
       - name: Etiketten sürümü uygula
-        shell: pwsh
+        shell: bash
         run: |
-          $v = $env:GITHUB_REF_NAME -replace '^v', ''
-          if ($v -notmatch '^\d+(\.\d+){0,3}$') { throw "Geçersiz sürüm etiketi: $env:GITHUB_REF_NAME" }
-          "APP_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          python tools/bump_version.py $v
+          v="${GITHUB_REF_NAME#v}"
+          if ! [[ "$v" =~ ^[0-9]+(\.[0-9]+){0,3}$ ]]; then
+            echo "invalid version tag: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          echo "APP_VERSION=$v" >> "$GITHUB_ENV"
+          python tools/bump_version.py "$v"
 
       - name: Testler
         run: |

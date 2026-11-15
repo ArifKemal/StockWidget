@@ -12,11 +12,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def main():
     if len(sys.argv) != 2:
-        print("kullanım: python tools/bump_version.py <sürüm>")
+        print("usage: python tools/bump_version.py <version>")
         return 2
     version = sys.argv[1].strip().lstrip("v")
     if not re.fullmatch(r"\d+(\.\d+){0,3}", version):
-        print("geçersiz sürüm: %s" % sys.argv[1])
+        print("invalid version: %s" % sys.argv[1])
         return 2
     parts = [int(p) for p in version.split(".")]
     while len(parts) < 4:
@@ -29,7 +29,7 @@ def main():
     src, count = re.subn(r'APP_VERSION = "[^"]*"',
                          'APP_VERSION = "%s"' % version, src, count=1)
     if count != 1:
-        print("APP_VERSION satırı bulunamadı")
+        print("APP_VERSION line not found")
         return 1
     with io.open(app_path, "w", encoding="utf-8", newline="") as f:
         f.write(src)
@@ -46,7 +46,7 @@ def main():
     with io.open(vi_path, "w", encoding="utf-8", newline="") as f:
         f.write(vi)
 
-    print("sürüm %s yazıldı" % version)
+    print("version %s written" % version)
     return 0
 
 
