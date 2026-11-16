@@ -219,6 +219,10 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
     - Not: onefile testinde "ikinci kopya" hatası görüldü; nedeni uygulama
       değil, önceki testlerden kalan bir `pythonw.exe`'nin mutex'i tutmasıydı.
       Test öncesi `Get-Process pythonw` kontrol edilmeli.
+    - Not: penceresiz (`console=False`) exe'nin stdout'u PowerShell `&` ile
+      **boş** gelir; sürüm doğrulaması `cmd /c` ile (çıktı yakalanarak)
+      yapılmalı. `v1.1.0` Release'inin ilk koşusu tam bu yüzden düştü; etiket
+      düzeltilmiş commit'e taşınıp yeniden atıldı.
     - README "İndir" tablosu yeniden sıralandı; tek dosya / kurulum / ZIP
       bölümleri, "Aç / kapa" tablosu ve Paketleme bölümü güncellendi.
 

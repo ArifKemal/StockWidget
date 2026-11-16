@@ -245,11 +245,12 @@ python -m PyInstaller --noconfirm --clean StockWidget.spec
 ### CI ve sürüm
 
 - `.github/workflows/ci.yml`: her push/PR'da test + PyInstaller derlemesi.
-- `.github/workflows/release.yml`: `v*` etiketi atıldığında test eder, portatif
-  ZIP ile kurulum paketini üretir ve GitHub Release'e ekler.
+- `.github/workflows/release.yml`: `v*` etiketi atıldığında test eder; tek dosya
+  `StockWidget-<sürüm>.exe`, portatif ZIP ve kurulum paketini üretip GitHub
+  Release'e ekler.
 
 ```powershell
-git tag v1.0.0
+git tag v1.1.0
 git push origin main --tags
 ```
 
@@ -272,7 +273,7 @@ Sürüm numarası etiketten alınır; ayrıca elle güncellemek gerekmez.
   portatif ZIP'i önerir; yönetici hakkı bu tür kısıtlamayı aşmaz.
 - **Kurulum "%TEMP% ... Access is denied" diyor:** `TEMP`/`TMP` klasörü
   yazılamıyor. Kurulumu yazılabilir bir geçici dizinle çalıştırın:
-  `set TEMP=C:\Temp&& set TMP=C:\Temp&& StockWidget-1.0.0-setup.exe`
+  `set TEMP=C:\Temp&& set TMP=C:\Temp&& StockWidget-1.1.0-setup.exe`
 - **Kısayol oluşmadı ama program kuruldu:** Başlat menüsü/masaüstü yazılamamış
   olabilir; kurulum düşmez, uyarı gösterir. Programı doğrudan
   `%LOCALAPPDATA%\Programs\StockWidget\StockWidget.exe` ile açın.

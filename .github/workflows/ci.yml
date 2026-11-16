@@ -37,5 +37,14 @@ jobs:
         run: |
           python -m PyInstaller --noconfirm --clean StockWidget.spec
           python -m PyInstaller --noconfirm --clean --distpath dist-onefile StockWidget-onefile.spec
-          & ".\dist-onefile\StockWidget.exe" --version
-          & ".\dist\StockWidget\StockWidget.exe" --version
+
+      - name: Exe sürüm dumanı
+        shell: pwsh
+        run: |
+          # Penceresiz exe'nin stdout'u PowerShell `&` ile gelmez; cmd /c kullan.
+          $expected = (python stock_widget.py --version).Trim()
+          foreach ($exe in @("dist-onefile\StockWidget.exe", "dist\StockWidget\StockWidget.exe")) {
+            $v = (cmd /c "`"$PWD\$exe`" --version 2>&1").Trim()
+            Write-Host "$exe -> $v"
+            if ($v -ne $expected) { throw "Sürüm uyuşmuyor: $exe ($v != $expected)" }
+          }

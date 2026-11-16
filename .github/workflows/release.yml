@@ -52,7 +52,8 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item dist-onefile\StockWidget.exe "StockWidget-$env:APP_VERSION.exe" -Force
-          $v = & ".\StockWidget-$env:APP_VERSION.exe" --version
+          # Penceresiz exe'nin stdout'u PowerShell `&` ile gelmez; cmd /c kullan.
+          $v = (cmd /c "`"$PWD\StockWidget-$env:APP_VERSION.exe`" --version 2>&1").Trim()
           if ($v -ne "StockWidget $env:APP_VERSION") { throw "Sürüm uyuşmuyor: $v" }
 
       - name: Portatif ZIP
