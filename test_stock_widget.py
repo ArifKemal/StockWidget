@@ -119,6 +119,28 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(cfg["opacity"], 1.0)
         self.assertEqual(cfg["density"], "normal")
 
+    def test_settings_defaults(self):
+        cfg = self._load_with({})
+        self.assertTrue(cfg["always_on_top"])
+        self.assertTrue(cfg["close_to_tray"])
+        self.assertFalse(cfg["pause_when_closed"])
+        self.assertEqual(cfg["refresh_open"], 15)
+        self.assertEqual(cfg["refresh_closed"], 60)
+
+    def test_settings_invalid(self):
+        cfg = self._load_with({
+            "always_on_top": "belki",
+            "close_to_tray": "hayır",
+            "pause_when_closed": "evet",
+            "refresh_open": "x",
+            "refresh_closed": 9999,
+        })
+        self.assertTrue(cfg["always_on_top"])
+        self.assertFalse(cfg["close_to_tray"])
+        self.assertTrue(cfg["pause_when_closed"])
+        self.assertEqual(cfg["refresh_open"], 15)
+        self.assertEqual(cfg["refresh_closed"], 1440)
+
 
 if __name__ == "__main__":
     unittest.main()

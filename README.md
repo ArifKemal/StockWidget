@@ -41,12 +41,12 @@ $env:SW_DATA_DIR = "$PWD\veri"
 
 | Ne | Nasıl |
 |---|---|
-| Göster / gizle | **Ctrl+Alt+S**, tepsi menüsü veya karttaki **✕** |
-| Tamamen çık | Sağ tık → **Çıkış** ya da tepsi → **Çıkış** |
+| Göster / gizle | **Ctrl+Alt+S**, tepsi menüsü veya karttaki **✕** (varsayılan: tepsiye gizler) |
+| Tamamen çık | Sağ tık → **Çıkış**, tepsi → **Çıkış** ya da Ayarlar'da "kapatınca tepsiye gizle" kapalıyken **✕** |
 | Taşı | Kartı sürükle; konum hatırlanır |
 | Sembol ekle / çıkar | Sağ tık → **Sembol ekle / çıkar…** |
 | Portföy | Sağ tık → **Portföy…** → adet + ortalama maliyet |
-| Tema / opaklık / yoğunluk | Sağ tık alt menüleri |
+| Ayarlar | Sağ tık → **Ayarlar…** (tema, opaklık, yoğunluk, yenileme, davranış) |
 | Komutlar | `--toggle` göster/gizle, `--quit` kapat, `--version`, `--paths` |
 
 Detay paneli satıra tıklayınca açılır: **1G / 1H / 1A / 1Y** aralıkları, mum/çizgi
@@ -57,10 +57,13 @@ geçişi, fareyle zaman-fiyat-yüzde okuması.
 - **Kart:** sembol, fiyat, günlük değişim, şirket adı ve mini grafik; sabit
   genişlikli rakamlar, "son güncelleme" zamanı, piyasa durumu noktası.
 - **Portföy:** toplam değer, günlük değişim ve pozisyon başına K/Z.
-- **Görünüm:** Gece / Slate / Grafit / Açık tema, %80–100 opaklık, normal/kompakt.
+- **Görünüm:** Gece / Slate / Grafit / Açık tema, %60–100 opaklık, normal/kompakt,
+  her zaman üstte.
 - **Tepsi:** göster/gizle, yenile, semboller, otomatik başlatma, çıkış.
-- **Dayanıklılık:** açıkken 15 dk, kapalıyken 60 dk yenileme; hata sonrası 90 s,
-  HTTP 429'da 5 dk bekleme; NYSE tatilleri kapalı sayılır; tek kopya çalışır.
+- **Dayanıklılık:** varsayılan açıkken 15 dk, kapalıyken 60 dk yenileme (Ayarlar'dan
+  değiştirilebilir); hata sonrası 90 s, HTTP 429'da 5 dk bekleme; NYSE tatilleri
+  kapalı sayılır; tek kopya çalışır. "Piyasa kapalıyken durdur" seçilirse kapalıyken
+  hiç istek gönderilmez.
 
 ## Veri kaynağı
 
@@ -69,12 +72,19 @@ olduğu için istek sayısı bilinçli olarak düşük tutulur:
 
 - Fiyat + gün istatistikleri + 1G grafiği: **tek istek**.
 - 1H / 1A / 1Y: sekmeye ilk tıklamada birer istek, sonra önbellekten.
-- Semboller arasında 0,4 s bekleme; 5 sembol ≈ günde ~300 istek.
+- Semboller arasında 0,4 s bekleme; varsayılan aralıklarda 5 sembol ≈ günde
+  ~300 istek.
 
 **Gecikme:** Yahoo verisi gecikmeli olabilir; pre/post market yok. Yatırım kararı
 için kullanmayın.
 
 ## Ayarlar
+
+Sağ tık → **Ayarlar…**: görünüm (tema, opaklık, yoğunluk, her zaman üstte,
+konumu sıfırla), veri (yenileme aralıkları, kapalıyken durdur, elle yenile),
+davranış (otomatik başlat, ✕ davranışı) ve gelişmiş (ayar klasörü). Değişiklikler
+anında uygulanır; **Sıfırla** yalnızca ayarları varsayılana döndürür
+(semboller, portföy ve otomatik başlatma korunur).
 
 `%APPDATA%\StockWidget\config.json` (portatif modda `SW_DATA_DIR` altında).
 Bozuk alan uygulamayı kilitlemez, varsayılana döner.
@@ -86,6 +96,10 @@ Bozuk alan uygulamayı kilitlemez, varsayılana döner.
 | `theme` | `gece`, `slate`, `grafit`, `acik`. |
 | `opacity` | 0.6–1.0. |
 | `density` | `normal` ya da `compact`. |
+| `always_on_top` | `true` / `false`; varsayılan `true`. |
+| `refresh_open`, `refresh_closed` | Yenileme aralığı (dakika, 1–1440). |
+| `pause_when_closed` | `true` ise piyasa kapalıyken istek gönderilmez. |
+| `close_to_tray` | `true` ise **✕** tepsiye gizler; `false` ise çıkar. |
 | `positions` | `{ "AAPL": { "qty": 12, "avg": 185.4 } }` |
 
 ## Geliştirme

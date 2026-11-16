@@ -111,6 +111,22 @@ INTERVAL_CLOSED = 60 * 60
 INTERVAL_RETRY = 90
 THROTTLE_429 = 300
 
+# Ayarlar penceresi: yenileme aralığı seçenekleri (dakika)
+REFRESH_OPEN_OPTIONS = (5, 15, 30)
+REFRESH_CLOSED_OPTIONS = (15, 60, 120)
+PAUSE_POLL = 60          # duraklatılmışken yalnızca saat kontrolü aralığı (s)
+
+SETTINGS_DEFAULTS = {
+    "theme": "gece",
+    "opacity": 0.97,
+    "density": "normal",
+    "always_on_top": True,
+    "refresh_open": 15,
+    "refresh_closed": 60,
+    "pause_when_closed": False,
+    "close_to_tray": True,
+}
+
 KEY = "#010203"          # transparentcolor key (rounded corners)
 
 PALETTES = {
@@ -293,6 +309,23 @@ def market_open():
     return 9 * 60 + 30 <= t < 16 * 60
 
 
+def _cfg_bool(cfg, key, default):
+    """config.json'daki gevşek yazılmış doğru/yanlış değerlerini normalize eder."""
+    value = cfg.get(key, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("1", "true", "yes", "on", "evet", "acik", "açık"):
+            return True
+        if text in ("0", "false", "no", "off", "hayir", "hayır", "kapali",
+                    "kapalı"):
+            return False
+    return default
+
+
 def load_config():
     cfg = {}
     if os.path.exists(CONFIG_FILE):
@@ -313,6 +346,15 @@ def load_config():
         cfg["density"] = "normal"
     if not isinstance(cfg.get("positions"), dict):
         cfg["positions"] = {}
+    cfg["always_on_top"] = _cfg_bool(cfg, "always_on_top", True)
+    cfg["close_to_tray"] = _cfg_bool(cfg, "close_to_tray", True)
+    cfg["pause_when_closed"] = _cfg_bool(cfg, "pause_when_closed", False)
+    for key, default in (("refresh_open", 15), ("refresh_closed", 60)):
+        try:
+            minutes = int(cfg.get(key, default))
+        except (TypeError, ValueError):
+            minutes = default
+        cfg[key] = min(1440, max(1, minutes))
     return cfg
 
 
@@ -1359,7 +1401,7 @@ class StockWidget:
         self.root = tk.Tk()
         self.root.title("StockWidget")
         self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
+        self.root.attributes("-topmost", bool(self.cfg["always_on_top"]))
         self.root.attributes("-alpha", self.alpha)
         self.root.configure(bg=KEY)
         try:
@@ -1401,10 +1443,18 @@ class StockWidget:
         self._row_photos = {}
         self._chart_photo = None
         self._data_ts = None
+        self._force_refresh = False
+        self._tray_ok = bool(TRAY_AVAILABLE and PIL_AVAILABLE)
+        self._settings_dlg = None
+        self._settings_last_lbl = None
+        self._settings_hotkey_lbl = None
+        self._settings_status_lbl = None
+        self._settings_pending = None
+        self._settings_scroll = (0.0, 1.0)
 
-        self.theme_var = tk.StringVar(value=self.cfg["theme"])
-        self.opacity_var = tk.DoubleVar(value=self.alpha)
-        self.density_var = tk.StringVar(value=self.density)
+        self.startup_var = tk.BooleanVar(value=startup_enabled())
+        self.hotkey_ok = None
+        self.hotkey_queue = queue.Queue()
         self._build_menu()
 
         self._dx = 0
@@ -1426,8 +1476,8 @@ class StockWidget:
                              lambda e: self.canvas.itemconfig("close_btn",
                                                               fill=DIM))
         self.canvas.tag_bind("close_btn", "<Button-1>",
-                             lambda e: self.root.after(10, self.hide_window))
-        self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
+                             lambda e: self.root.after(10, self.close_window))
+        self.root.protocol("WM_DELETE_WINDOW", self.close_window)
 
         self._setup_tray()
         threading.Thread(target=hotkey_loop,
@@ -1454,6 +1504,8 @@ class StockWidget:
         m = tk.Menu(self.root, tearoff=0, bg=MENU_BG, fg=FG,
                     activebackground=MENU_ACTIVE, activeforeground=FG, bd=0)
         self.menu = m
+        m.add_command(label="Ayarlar…", command=self.open_settings_editor)
+        m.add_separator()
         m.add_command(label="Sembol ekle / çıkar…",
                       command=self.open_symbol_editor)
         m.add_command(label="Portföy…", command=self.open_portfolio_editor)
@@ -1462,50 +1514,12 @@ class StockWidget:
         m.add_cascade(label="Hızlı çıkar", menu=self.remove_menu)
         m.add_separator()
         m.add_command(label="Yenile", command=self.refresh_now)
-
-        self.theme_menu = tk.Menu(m, tearoff=0, bg=MENU_BG, fg=FG,
-                                  activebackground=MENU_ACTIVE)
-        for key in THEME_ORDER:
-            self.theme_menu.add_radiobutton(
-                label=THEME_LABEL[key], value=key, variable=self.theme_var,
-                command=lambda k=key: self.set_theme(k))
-        m.add_cascade(label="Tema", menu=self.theme_menu)
-
-        self.opacity_menu = tk.Menu(m, tearoff=0, bg=MENU_BG, fg=FG,
-                                    activebackground=MENU_ACTIVE)
-        for v in (0.8, 0.85, 0.9, 0.95, 1.0):
-            self.opacity_menu.add_radiobutton(
-                label="%d%%" % int(round(v * 100)), value=v,
-                variable=self.opacity_var,
-                command=lambda val=v: self.set_opacity(val))
-        m.add_cascade(label="Opaklık", menu=self.opacity_menu)
-
-        self.density_menu = tk.Menu(m, tearoff=0, bg=MENU_BG, fg=FG,
-                                    activebackground=MENU_ACTIVE)
-        self.density_menu.add_radiobutton(
-            label="Normal", value="normal", variable=self.density_var,
-            command=lambda: self.set_density("normal"))
-        self.density_menu.add_radiobutton(
-            label="Kompakt", value="compact", variable=self.density_var,
-            command=lambda: self.set_density("compact"))
-        m.add_cascade(label="Yoğunluk", menu=self.density_menu)
-
-        self.startup_var = tk.BooleanVar(value=startup_enabled())
-        self.hotkey_ok = None
-        self.hotkey_queue = queue.Queue()
-        m.add_checkbutton(label="Windows'ta otomatik başlat",
-                          variable=self.startup_var,
-                          command=self.toggle_startup)
-        self.hotkey_idx = m.index("end") + 1
-        m.add_command(label="Kısayol: Ctrl+Alt+S – göster/gizle",
-                      state="disabled")
         m.add_separator()
         m.add_command(label="Gizle", command=self.hide_window)
         m.add_command(label="Çıkış", command=self.exit_app)
 
     def _style_menus(self):
-        for mm in (getattr(self, "menu", None), self.remove_menu,
-                   self.theme_menu, self.opacity_menu, self.density_menu):
+        for mm in (getattr(self, "menu", None), self.remove_menu):
             if mm is None:
                 continue
             try:
@@ -1516,6 +1530,8 @@ class StockWidget:
                 pass
 
     def set_theme(self, key):
+        if key not in PALETTES or key == self.cfg.get("theme"):
+            return
         apply_palette(key)
         self.cfg["theme"] = key
         save_config(self.cfg)
@@ -1524,11 +1540,10 @@ class StockWidget:
         self._restore_position()
         if self._detail is not None:
             self._detail.render()
+        self._refresh_settings()
 
-    def set_opacity(self, val):
-        self.alpha = float(val)
-        self.cfg["opacity"] = self.alpha
-        save_config(self.cfg)
+    def _apply_opacity(self, val):
+        self.alpha = min(1.0, max(0.6, float(val)))
         try:
             self.root.attributes("-alpha", self.alpha)
         except tk.TclError:
@@ -1538,6 +1553,11 @@ class StockWidget:
                 self._detail.win.attributes("-alpha", self.alpha)
             except tk.TclError:
                 pass
+
+    def set_opacity(self, val):
+        self._apply_opacity(val)
+        self.cfg["opacity"] = self.alpha
+        save_config(self.cfg)
 
     def set_density(self, key):
         if key not in ("normal", "compact"):
@@ -1550,10 +1570,29 @@ class StockWidget:
         self._restore_position()
         if self._detail is not None:
             self._detail.reposition()
+        self._refresh_settings()
+
+    def set_always_on_top(self, value):
+        self.cfg["always_on_top"] = bool(value)
+        save_config(self.cfg)
+        try:
+            self.root.attributes("-topmost", bool(value))
+        except tk.TclError:
+            pass
+
+    def set_pause_when_closed(self, value):
+        self.cfg["pause_when_closed"] = bool(value)
+        save_config(self.cfg)
+        self.wake.set()
+
+    def set_close_to_tray(self, value):
+        self.cfg["close_to_tray"] = bool(value)
+        save_config(self.cfg)
 
     def _status_tick(self):
         try:
             self._update_status()
+            self._sync_settings_time()
             self.root.after(20000, self._status_tick)
         except tk.TclError:
             pass
@@ -1921,6 +1960,7 @@ class StockWidget:
                 label=sym, command=lambda s=sym: self.remove_symbol(s))
 
     def refresh_now(self):
+        self._force_refresh = True
         self.wake.set()
 
     # ---------- detail panel ----------
@@ -1939,8 +1979,9 @@ class StockWidget:
         if self._detail is not None:
             self._detail.close()
 
-    def toggle_startup(self):
-        set_startup(self.startup_var.get())
+    def apply_startup(self, value):
+        set_startup(bool(value))
+        self.startup_var.set(startup_enabled())
         if self.tray_icon:
             try:
                 self.tray_icon.update_menu()
@@ -2455,15 +2496,525 @@ class StockWidget:
                                       sh_ // 2 - h // 2))
         return dlg
 
+    # ---------- settings ----------
+
+    def open_settings_editor(self):
+        dlg = self._settings_dlg
+        if dlg is not None and dlg.winfo_exists():
+            dlg.deiconify()
+            dlg.lift()
+            dlg.focus_set()
+            return dlg
+        dlg = tk.Toplevel(self.root)
+        self._settings_dlg = dlg
+        self._settings_pending = None
+        dlg.configure(bg=CARD)
+        dlg.attributes("-topmost", True)
+        dlg.title("Ayarlar")
+        dlg.resizable(False, False)
+        dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
+        try:
+            dlg.iconbitmap(ICON_FILE)
+        except tk.TclError:
+            pass
+        dark_title_bar(dlg)
+        dlg.bind("<Escape>", lambda ev: dlg.destroy())
+        dlg.bind("<Destroy>",
+                 lambda ev: self._settings_destroyed(ev, dlg))
+        self._build_settings(dlg, center=True)
+        return dlg
+
+    def _settings_destroyed(self, event, dlg):
+        if event.widget is not dlg:
+            return
+        self._settings_dlg = None
+        self._settings_last_lbl = None
+        self._settings_hotkey_lbl = None
+        self._settings_status_lbl = None
+        self._settings_pending = None
+
+    def _refresh_settings(self):
+        """Tema gibi renkleri değiştiren işlemlerden sonra pencereyi kur."""
+        dlg = self._settings_dlg
+        if dlg is None:
+            return
+        try:
+            if dlg.winfo_exists():
+                dlg.after_idle(lambda: self._rebuild_settings(dlg))
+        except tk.TclError:
+            pass
+
+    def _rebuild_settings(self, dlg):
+        try:
+            if dlg.winfo_exists():
+                self._build_settings(dlg, center=False)
+        except tk.TclError:
+            pass
+
+    def _settings_note(self, text, color=None):
+        self._settings_pending = (text, color or DIM)
+        lbl = self._settings_status_lbl
+        if lbl is None:
+            return
+        try:
+            if lbl.winfo_exists():
+                lbl.config(text=text, fg=color or DIM)
+        except tk.TclError:
+            pass
+
+    def _sync_settings_time(self):
+        lbl = self._settings_last_lbl
+        if lbl is None:
+            return
+        try:
+            if lbl.winfo_exists():
+                lbl.config(text=self._rel_time())
+        except tk.TclError:
+            pass
+
+    def _pick_theme(self, key):
+        if key == self.cfg.get("theme"):
+            return
+        self.set_theme(key)
+        self._settings_note("Tema: %s." % THEME_LABEL.get(key, key))
+
+    def _pick_density(self, key):
+        if key == self.cfg.get("density"):
+            return
+        self.set_density(key)
+        self._settings_note("Yoğunluk: %s."
+                            % ("Normal" if key == "normal" else "Kompakt"))
+
+    def _pick_always_on_top(self, value):
+        self.set_always_on_top(value)
+        self._settings_note("Her zaman üstte %s."
+                            % ("açık" if value else "kapalı"))
+
+    def _pick_pause_when_closed(self, value):
+        self.set_pause_when_closed(value)
+        self._settings_note("Piyasa kapalıyken yenileme %s."
+                            % ("duruyor" if value else "sürüyor"))
+
+    def _pick_close_to_tray(self, value):
+        self.set_close_to_tray(value)
+        self._settings_note("✕ %s."
+                            % ("tepsiye gizler" if value else "uygulamayı "
+                               "kapatır"))
+
+    def _pick_startup(self, value):
+        self.apply_startup(value)
+        actual = startup_enabled()
+        if actual != bool(value):
+            self._settings_note("Otomatik başlatma değiştirilemedi.", RED)
+        else:
+            self._settings_note("Otomatik başlatma %s."
+                                % ("açık" if actual else "kapalı"))
+
+    def _pick_reset_position(self):
+        self.reset_position()
+        self._settings_note("Konum sıfırlandı.", GREEN)
+
+    def _settings_refresh_now(self):
+        self.refresh_now()
+        lbl = self._settings_last_lbl
+        if lbl is not None:
+            try:
+                lbl.config(text="yenileniyor…")
+            except tk.TclError:
+                pass
+
+    def set_refresh(self, key, minutes):
+        if key not in ("refresh_open", "refresh_closed"):
+            return
+        self.cfg[key] = int(minutes)
+        save_config(self.cfg)
+        self.wake.set()
+        self._refresh_settings()
+        label = ("Piyasa açıkken" if key == "refresh_open"
+                 else "Piyasa kapalıyken")
+        self._settings_note("%s yenileme: %d dk." % (label, int(minutes)))
+
+    def reset_position(self):
+        sm = ctypes.windll.user32.GetSystemMetrics
+        sw_, sh_ = sm(0), sm(1)
+        W, H = self.W, self._row_height()
+        self.cfg["x"] = sw_ - W - self.s(24)
+        self.cfg["y"] = sh_ - H - self.s(60)
+        save_config(self.cfg)
+        self._restore_position()
+
+    def reset_settings(self):
+        for key, value in SETTINGS_DEFAULTS.items():
+            self.cfg[key] = value
+        save_config(self.cfg)
+        apply_palette(self.cfg["theme"])
+        self.density = self.cfg["density"]
+        self._set_density()
+        self._apply_opacity(self.cfg["opacity"])
+        self.cfg["opacity"] = self.alpha
+        try:
+            self.root.attributes("-topmost", self.cfg["always_on_top"])
+        except tk.TclError:
+            pass
+        self._style_menus()
+        self.build_ui()
+        self._restore_position()
+        if self._detail is not None:
+            self._detail.render()
+        self.wake.set()
+        self._settings_note("Ayarlar varsayılana döndü.", GREEN)
+        self._refresh_settings()
+
+    def _open_data_dir(self):
+        try:
+            os.startfile(DATA_DIR)
+        except OSError:
+            log.exception("ayar klasörü açılamadı")
+            self._settings_note("Klasör açılamadı.", RED)
+
+    def _build_settings(self, dlg, center):
+        s = self.s
+        if center:
+            self._settings_scroll = (0.0, 1.0)
+        dlg.configure(bg=CARD)
+        for child in dlg.winfo_children():
+            child.destroy()
+        self._settings_last_lbl = None
+        self._settings_hotkey_lbl = None
+        self._settings_status_lbl = None
+
+        # ---- başlık ----
+        head = tk.Frame(dlg, bg=CARD)
+        head.pack(fill="x", padx=s(18), pady=(s(14), 0))
+        tk.Label(head, text="Ayarlar", bg=CARD, fg=FG,
+                 font=("Segoe UI", 12, "bold")).pack(side="left")
+        tk.Label(head, text=APP_VERSION, bg=RAISED, fg=MUTED,
+                 font=("Segoe UI", 6, "bold")).pack(
+            side="left", padx=(s(8), 0), ipadx=s(4), ipady=s(1))
+        tk.Label(dlg, text="Değişiklikler anında uygulanır.",
+                 bg=CARD, fg=DIM, font=self.f_foot).pack(
+            anchor="w", padx=s(18), pady=(s(2), s(6)))
+
+        # ---- kaydırılabilir gövde ----
+        holder = tk.Frame(dlg, bg=CARD)
+        holder.pack(fill="both", expand=True, padx=s(18))
+        canvas = tk.Canvas(holder, bg=CARD, highlightthickness=0, bd=0)
+        canvas.pack(side="left", fill="both", expand=True)
+        vs = tk.Scrollbar(holder, orient="vertical", command=canvas.yview,
+                          width=s(9), bg=CARD, troughcolor=CARD, bd=0,
+                          relief="flat", activebackground=BTN,
+                          highlightthickness=0)
+        body = tk.Frame(canvas, bg=CARD)
+        win_id = canvas.create_window((0, 0), window=body, anchor="nw")
+        body.bind("<Configure>", lambda e: canvas.configure(
+            scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(
+            win_id, width=e.width))
+
+        body.grid_columnconfigure(0, weight=1, uniform="col")
+        body.grid_columnconfigure(1, weight=1, uniform="col")
+        left_col = tk.Frame(body, bg=CARD)
+        left_col.grid(row=0, column=0, sticky="nsew", padx=(0, s(5)))
+        right_col = tk.Frame(body, bg=CARD)
+        right_col.grid(row=0, column=1, sticky="nsew", padx=(s(5), 0))
+
+        # ---- ortak parçalar ----
+        def section(parent, title):
+            tk.Label(parent, text=title, bg=CARD, fg=DIM,
+                     font=("Segoe UI", 6, "bold"), anchor="w").pack(
+                fill="x", padx=s(2), pady=(s(10), s(3)))
+            card = tk.Frame(parent, bg=RAISED, highlightthickness=1,
+                            highlightbackground=DIVIDER)
+            card.pack(fill="x")
+            return card
+
+        def add_row(card, title, hint=None, last=False):
+            row = tk.Frame(card, bg=RAISED)
+            row.pack(fill="x")
+            left = tk.Frame(row, bg=RAISED)
+            left.pack(side="left", padx=(s(11), s(4)), pady=s(6))
+            tk.Label(left, text=title, bg=RAISED, fg=FG,
+                     font=("Segoe UI", 9), anchor="w").pack(anchor="w")
+            hint_lbl = None
+            if hint:
+                hint_lbl = tk.Label(left, text=hint, bg=RAISED, fg=DIM,
+                                    font=("Segoe UI", 7), anchor="w",
+                                    justify="left")
+                hint_lbl.pack(anchor="w", pady=(s(1), 0))
+            if not last:
+                tk.Frame(card, bg=DIVIDER, height=1).pack(fill="x",
+                                                          padx=s(11))
+            return row, hint_lbl
+
+        def segmented(parent, options, getter, on_pick):
+            box = tk.Frame(parent, bg=RAISED)
+            cells = {}
+            for label, value in options:
+                cell = tk.Frame(box, bg=RAISED)
+                cell.pack(side="left", padx=(s(1), 0))
+                btn = tk.Button(cell, text=label, bd=0, relief="flat",
+                                bg=RAISED, fg=MUTED,
+                                activebackground=RAISED, activeforeground=FG,
+                                font=("Segoe UI", 8), cursor="hand2",
+                                padx=s(5), pady=s(2),
+                                command=lambda v=value: on_pick(v))
+                btn.pack()
+                line = tk.Frame(cell, bg=RAISED, height=s(2))
+                line.pack(fill="x", padx=s(3))
+                cells[value] = (btn, line)
+            cur = getter()
+            for value, (btn, line) in cells.items():
+                sel = value == cur
+                btn.configure(fg=FG if sel else MUTED,
+                              font=("Segoe UI", 8,
+                                    "bold" if sel else "normal"))
+                line.configure(bg=ACCENT if sel else RAISED)
+            return box
+
+        def switch(parent, getter, on_change):
+            w, h = s(30), s(16)
+            cv = tk.Canvas(parent, width=w, height=h, bg=RAISED,
+                           highlightthickness=0, bd=0, cursor="hand2")
+
+            def draw():
+                on = bool(getter())
+                col = ACCENT if on else TRACK
+                cv.delete("all")
+                r = h / 2.0
+                cv.create_oval(0, 0, h, h, fill=col, outline="")
+                cv.create_oval(w - h, 0, w, h, fill=col, outline="")
+                cv.create_rectangle(r, 0, w - r, h, fill=col, outline="")
+                knob = h - s(4)
+                x = (w - h + s(2)) if on else s(2)
+                cv.create_oval(x, s(2), x + knob, s(2) + knob,
+                               fill="#ffffff" if on else FG, outline="")
+
+            def clicked(event=None):
+                on_change(not getter())
+                draw()
+
+            cv.bind("<Button-1>", clicked)
+            draw()
+            return cv
+
+        def small_button(parent, text, command):
+            return tk.Button(parent, text=text, bg=BTN, fg=FG, bd=0,
+                             activebackground=BTN_HOVER, activeforeground=FG,
+                             font=("Segoe UI", 8), cursor="hand2",
+                             padx=s(9), pady=s(3), command=command)
+
+        # ---- sol: görünüm ----
+        card = section(left_col, "GÖRÜNÜM")
+        row, _ = add_row(card, "Tema")
+        segmented(row, [(THEME_LABEL[k], k) for k in THEME_ORDER],
+                  lambda: self.cfg["theme"], self._pick_theme).pack(
+            side="right", padx=(0, s(9)))
+
+        row, _ = add_row(card, "Opaklık")
+        op_val = tk.Label(row, text="%d%%" % int(round(self.alpha * 100)),
+                          bg=RAISED, fg=FG, font=(self.mono, 9, "bold"),
+                          width=4, anchor="e")
+        op_val.pack(side="right", padx=(0, s(11)))
+
+        def on_opacity(val, commit):
+            pct = int(round(val))
+            op_val.config(text="%d%%" % pct)
+            if commit:
+                self.set_opacity(pct / 100.0)
+                self._settings_note("Opaklık: %d%%." % pct)
+            else:
+                self._apply_opacity(pct / 100.0)
+
+        def slider(parent, value, on_change):
+            w, h = s(112), s(18)
+            cv = tk.Canvas(parent, width=w, height=h, bg=RAISED,
+                           highlightthickness=0, bd=0, cursor="hand2")
+            pad = s(7)
+            cy = h / 2.0
+            thick = max(2, s(3))
+            state = {"val": float(value)}
+
+            def draw(val):
+                cv.delete("all")
+                x1, x2 = pad, w - pad
+                x = x1 + (x2 - x1) * (val - 60.0) / 40.0
+                cv.create_line(x1, cy, x2, cy, fill=TRACK, width=thick,
+                               capstyle="round")
+                if x > x1:
+                    cv.create_line(x1, cy, x, cy, fill=ACCENT,
+                                   width=thick, capstyle="round")
+                r = s(6)
+                cv.create_oval(x - r, cy - r, x + r, cy + r, fill=ACCENT,
+                               outline=RAISED, width=max(1, s(1)))
+
+            def value_at(px):
+                frac = (px - pad) / float(w - 2 * pad)
+                return 60.0 + min(1.0, max(0.0, frac)) * 40.0
+
+            def move(ev):
+                state["val"] = value_at(ev.x)
+                draw(state["val"])
+                on_change(state["val"], False)
+
+            def release(ev):
+                move(ev)
+                on_change(state["val"], True)
+
+            cv.bind("<Button-1>", move)
+            cv.bind("<B1-Motion>", move)
+            cv.bind("<ButtonRelease-1>", release)
+            draw(state["val"])
+            return cv
+
+        slider(row, int(round(self.alpha * 100)), on_opacity).pack(
+            side="right", padx=(0, s(6)))
+
+        row, _ = add_row(card, "Yoğunluk")
+        segmented(row, [("Normal", "normal"), ("Kompakt", "compact")],
+                  lambda: self.cfg["density"], self._pick_density).pack(
+            side="right", padx=(0, s(9)))
+
+        row, _ = add_row(card, "Her zaman üstte",
+                         "Diğer pencerelerin üstünde kalır")
+        switch(row, lambda: self.cfg.get("always_on_top", True),
+               self._pick_always_on_top).pack(side="right",
+                                              padx=(0, s(11)))
+
+        row, _ = add_row(card, "Konum", "Kartı sağ alta taşır", last=True)
+        small_button(row, "Konumu sıfırla",
+                     self._pick_reset_position).pack(side="right",
+                                                     padx=(0, s(9)))
+
+        # ---- sol: gelişmiş ----
+        card = section(left_col, "GELİŞMİŞ")
+        row, _ = add_row(card, "Ayar dosyası", "config.json", last=True)
+        small_button(row, "Klasörü aç",
+                     self._open_data_dir).pack(side="right",
+                                               padx=(0, s(9)))
+
+        # ---- sağ: veri ----
+        card = section(right_col, "VERİ")
+        row, _ = add_row(card, "Piyasa açıkken", "Yenileme aralığı")
+        segmented(row,
+                  [("%d dk" % m, m) for m in REFRESH_OPEN_OPTIONS],
+                  lambda: self.cfg.get("refresh_open", 15),
+                  lambda v: self.set_refresh("refresh_open", v)).pack(
+            side="right", padx=(0, s(9)))
+
+        row, _ = add_row(card, "Piyasa kapalıyken", "Yenileme aralığı")
+        segmented(row,
+                  [("%d dk" % m, m) for m in REFRESH_CLOSED_OPTIONS],
+                  lambda: self.cfg.get("refresh_closed", 60),
+                  lambda v: self.set_refresh("refresh_closed", v)).pack(
+            side="right", padx=(0, s(9)))
+
+        row, _ = add_row(card, "Piyasa kapalıyken durdur",
+                         "İstek göndermez, açılışı bekler")
+        switch(row, lambda: self.cfg.get("pause_when_closed", False),
+               self._pick_pause_when_closed).pack(side="right",
+                                                  padx=(0, s(11)))
+
+        row, last_lbl = add_row(card, "Son güncelleme",
+                                self._rel_time(), last=True)
+        self._settings_last_lbl = last_lbl
+        small_button(row, "Yenile",
+                     self._settings_refresh_now).pack(side="right",
+                                                      padx=(0, s(9)))
+        tk.Label(right_col, text="Kaynak: Yahoo Finance · resmî olmayan, "
+                                 "gecikmeli veri.",
+                 bg=CARD, fg=DIM, font=("Segoe UI", 7), anchor="w",
+                 justify="left", wraplength=s(280)).pack(
+            fill="x", padx=s(2), pady=(s(4), 0))
+
+        # ---- sağ: davranış ----
+        card = section(right_col, "DAVRANIŞ")
+        row, _ = add_row(card, "Windows'ta otomatik başlat",
+                         "Oturum açılınca başlar")
+        switch(row, startup_enabled, self._pick_startup).pack(
+            side="right", padx=(0, s(11)))
+
+        row, _ = add_row(card, "Kapatınca tepsiye gizle",
+                         "Kapalıysa ✕ uygulamayı kapatır")
+        switch(row, lambda: self.cfg.get("close_to_tray", True),
+               self._pick_close_to_tray).pack(side="right",
+                                              padx=(0, s(11)))
+
+        row, _ = add_row(card, "Göster / gizle kısayolu",
+                         "Değiştirme henüz yok", last=True)
+        hk_ok = self.hotkey_ok is not False
+        hk = tk.Label(row, text="Ctrl + Alt + S" if hk_ok
+                      else "kaydedilemedi",
+                      bg=TRACK, fg=FG if hk_ok else RED,
+                      font=(self.mono, 8, "bold"), padx=s(6), pady=s(2))
+        hk.pack(side="right", padx=(0, s(11)))
+        self._settings_hotkey_lbl = hk
+
+        # ---- alt bar ----
+        tk.Frame(dlg, bg=DIVIDER, height=1).pack(fill="x", padx=s(18),
+                                                 pady=(s(10), 0))
+        status = tk.Label(dlg, text="", bg=CARD, fg=DIM, font=self.f_foot,
+                          anchor="w")
+        status.pack(fill="x", padx=s(18), pady=(s(6), 0))
+        self._settings_status_lbl = status
+        if self._settings_pending:
+            text, color = self._settings_pending
+            status.config(text=text, fg=color)
+
+        footer = tk.Frame(dlg, bg=CARD)
+        footer.pack(fill="x", padx=s(18), pady=(s(4), s(14)))
+        tk.Button(footer, text="Sıfırla", bg=BTN, fg=MUTED, bd=0,
+                  activebackground=BTN_HOVER, activeforeground=RED,
+                  font=("Segoe UI", 9), cursor="hand2",
+                  command=self.reset_settings).pack(side="left",
+                                                    ipadx=s(12), ipady=s(4))
+        small_button(footer, "Semboller…",
+                     self.open_symbol_editor).pack(side="left",
+                                                   padx=(s(6), 0))
+        small_button(footer, "Portföy…",
+                     self.open_portfolio_editor).pack(side="left",
+                                                      padx=(s(6), 0))
+        tk.Button(footer, text="Kapat", bg=ACCENT, fg="#ffffff", bd=0,
+                  activebackground=ACCENT_HOVER, activeforeground="#ffffff",
+                  font=("Segoe UI", 9, "bold"), cursor="hand2",
+                  command=dlg.destroy).pack(side="right", ipadx=s(26),
+                                            ipady=s(5))
+
+        # ---- yerleşim ----
+        dlg.update_idletasks()
+        body_h = body.winfo_reqheight()
+        sm = ctypes.windll.user32.GetSystemMetrics
+        sw_, sh_ = sm(0), sm(1)
+        cap = max(s(280), int(sh_ * 0.66))
+        canvas.configure(height=min(max(body_h, s(160)), cap))
+        if body_h > cap:
+            def on_yscroll(first, last):
+                vs.set(first, last)
+                self._settings_scroll = (float(first), float(last))
+
+            canvas.configure(yscrollcommand=on_yscroll)
+            vs.pack(side="right", fill="y", padx=(s(4), 0))
+            dlg.bind("<MouseWheel>", lambda ev: canvas.yview_scroll(
+                -1 if ev.delta > 0 else 1, "units"))
+
+        dlg.update_idletasks()
+        if center:
+            w = min(max(s(620), dlg.winfo_reqwidth()), sw_ - s(40))
+            h = dlg.winfo_reqheight()
+            dlg.geometry("%dx%d+%d+%d" % (
+                w, h, max(0, sw_ // 2 - w // 2),
+                max(0, sh_ // 2 - h // 2)))
+        canvas.yview_moveto(self._settings_scroll[0])
+
     # ---------- data loop ----------
 
     def _set_hotkey_hint(self, ok):
         self.hotkey_ok = ok
+        lbl = getattr(self, "_settings_hotkey_lbl", None)
+        if lbl is None:
+            return
         try:
-            self.menu.entryconfig(
-                self.hotkey_idx,
-                label=("Kısayol: Ctrl+Alt+S – göster/gizle" if ok else
-                       "Kısayol: Ctrl+Alt+S kaydedilemedi"))
+            lbl.config(text=("Ctrl + Alt + S" if ok else "kaydedilemedi"),
+                       fg=FG if ok else RED)
         except tk.TclError:
             pass
 
@@ -2500,13 +3051,30 @@ class StockWidget:
                 except tk.TclError:
                     pass
 
+    def _refresh_minutes(self, is_open):
+        key = "refresh_open" if is_open else "refresh_closed"
+        default = (INTERVAL_OPEN if is_open else INTERVAL_CLOSED) // 60
+        try:
+            return max(1, int(self.cfg.get(key, default)))
+        except (TypeError, ValueError):
+            return default
+
     def fetch_loop(self):
         while not self.stop_flag.is_set():
+            is_open = market_open()
+            if (not is_open and self.cfg.get("pause_when_closed")
+                    and not self._force_refresh):
+                # Piyasa kapalı ve yenileme duraklatıldı: ağ isteği yok,
+                # yalnızca açılışı yakalamak için saat kontrol edilir.
+                self.wake.wait(PAUSE_POLL)
+                self.wake.clear()
+                continue
+            self._force_refresh = False
             symbols = list(self.cfg["symbols"])
             if not symbols:
                 # Boş liste: sadece bekle, çevrimdışı sayma
                 self.queue.put(({}, False))
-                self.wake.wait(INTERVAL_CLOSED)
+                self.wake.wait(self._refresh_minutes(False) * 60)
                 self.wake.clear()
                 continue
             results = {}
@@ -2527,7 +3095,8 @@ class StockWidget:
             if failures:
                 log.warning("fetch: %d/%d sembol başarısız",
                             failures, len(symbols))
-            interval = INTERVAL_CLOSED if not market_open() else INTERVAL_OPEN
+            is_open = market_open()
+            interval = self._refresh_minutes(is_open) * 60
             offline = failures == len(symbols) and not results
             if failures and not results:
                 interval = INTERVAL_RETRY
@@ -2585,6 +3154,7 @@ class StockWidget:
                 self.tray_icon.update_menu()
             except Exception:
                 pass
+        self._refresh_settings()
 
     def _setup_tray(self):
         if not (TRAY_AVAILABLE and PIL_AVAILABLE):
@@ -2598,6 +3168,7 @@ class StockWidget:
         try:
             self.tray_icon.run()
         except Exception:
+            self._tray_ok = False
             log.exception("tepsi simgesi başlatılamadı")
 
     def toggle_visibility(self, icon=None, item=None):
@@ -2609,7 +3180,21 @@ class StockWidget:
 
     def hide_window(self):
         self.close_detail()
+        dlg = self._settings_dlg
+        if dlg is not None:
+            try:
+                dlg.destroy()
+            except tk.TclError:
+                pass
         self.root.withdraw()
+
+    def close_window(self):
+        """✕ / Alt+F4: tercihe göre tepsiye gizle ya da tamamen çık."""
+        can_restore = bool(self._tray_ok or self.hotkey_ok is True)
+        if self.cfg.get("close_to_tray", True) and can_restore:
+            self.hide_window()
+        else:
+            self.exit_app()
 
     # ---------- lifecycle ----------
 

@@ -5,7 +5,7 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 ücretsiz chart endpoint'ini kullanır. UI metinleri Türkçe, UTF-8.
 
 ## Dosyalar
-- `stock_widget.py` — uygulamanın tamamı (UI, veri çevrimi, tray, kısayol, portföy, otomatik başlatma)
+- `stock_widget.py` — uygulamanın tamamı (UI, veri çevrimi, tray, kısayol, portföy, ayarlar, otomatik başlatma)
 - `README.md` — kullanıcı dokümanı (indirme, kurulum, kullanım, derleme, sorun giderme)
 - `AGENT.md` — bu dosya: mimari kurallar + değişiklik günlüğü
 - `test_stock_widget.py` — stdlib `unittest` birim testleri (ağa çıkmaz)
@@ -52,7 +52,9 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
   bloğu `stop_flag` set edildiğinde `root.after` planlamaz (destroy sonrası
   `TclError` yok).
 - Pencere gizleme tek yol: `hide_window()` (detay panelini de kapatır). `root.withdraw()`'ı
-  doğrudan çağırma — açık detay paneli ekranda asılı kalır.
+  doğrudan çağırma — açık detay paneli ekranda asılı kalır. Karttaki ✕ ve
+  `WM_DELETE_WINDOW` `close_window()`'a bağlıdır: `close_to_tray` açık ve tepsi ya da
+  global kısayol çalışıyorsa gizler, aksi halde `exit_app()` (pencere kaybolmasın).
 - **Tema renkleri modül globalleridir.** `apply_palette(name)` bunları `globals()` ile
   yeniden bağlar; çizim kodu renkleri **çağrı anında** okuduğu için tema değişimi anında yansır.
   Yeni bir renk kullanacaksan önce `PALETTES` sözlüğüne anahtar ekle, sabit hex yazma.
@@ -63,10 +65,17 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
   kalır. Yeni satır içi dikey ofset eklerken `s()` değil `ro()` kullan.
 - **Tanılama `sw.log`'a yazılır** (`setup_logging`); `pythonw.exe`'de stdout/stderr yoktur.
   Yeni hata yollarında `log.exception` / `log.warning` kullan, `print` kullanma.
+- **Ayarlar penceresi** (`open_settings_editor`): iki sütunlu gruplu kartlar, anında
+  uygulama, altta Sıfırla/Kapat. Renkler modül globali olduğu için tema değişimi
+  `_refresh_settings()` ile pencereyi `after_idle` yeniden kurar (`_build_settings`);
+  yeni ayar eklerken `SETTINGS_DEFAULTS` + `load_config` doğrulaması + satır ekle.
+  Widget'lar `cfg`'yi doğrudan okur; her değişiklik `save_config` ile diske yazılır.
 
 ## Veri ve API disiplini (ücretsiz endpoint, 429 riski)
 - Sembol başına döngüde **1 istek**; semboller arasında 0.4 s bekleme.
-- Aralıklar: piyasa açık 15 dk, kapalı 60 dk; hata sonrası 90 s; HTTP 429 → 5 dk bekleme.
+- Aralıklar: piyasa açık 15 dk, kapalı 60 dk (Ayarlar'dan 5–30 / 15–120 dk);
+  hata sonrası 90 s; HTTP 429 → 5 dk bekleme. `pause_when_closed` açıksa piyasa
+  kapalıyken hiç istek gönderilmez, yalnızca 60 s'de bir saat kontrol edilir.
 - Endpoint: `query1.finance.yahoo.com/v8/finance/chart/{sembol}?range=1d&interval=5m`.
 - Yeni özellik eklerken istek sayısını artırma; mevcut yanıttaki alanları kullan
   (fiyat, önceki kapanış, para birimi, meta, timestamp serisi).
@@ -257,6 +266,30 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
     - Duman testi (`build/pf_check.py`, git dışı): 4 sembolle kaydetme ve
       geçersiz giriş reddi; `build/pf_theme.py`: açık tema + 10 sembolle
       kaydırma. Ekran görüntüleri `build/pf-*.png`.
+21. **Ayarlar penceresi (Faz 1)** —
+    - Sağ tık menüsündeki Tema / Opaklık / Yoğunluk / otostart girdileri tek
+      pencerede toplandı: **Ayarlar…** → iki sütunlu gruplu kartlar (Görünüm,
+      Gelişmiş / Veri, Davranış). Değişiklikler anında uygulanır ve kaydedilir;
+      altta **Sıfırla** (yalnızca ayarlar; semboller/portföy/otostart korunur)
+      ve **Kapat**.
+    - Yeni ayarlar: "Her zaman üstte", yenileme aralığı seçenekleri (açıkken
+      5/15/30, kapalıyken 15/60/120 dk), "piyasa kapalıyken yenilemeyi durdur",
+      "kapatınca tepsiye gizle" ve "konumu sıfırla". Eski menü alt menüleri
+      kaldırıldı; Semboller/Portföy düğmeleri pencerenin altına taşındı.
+    - `config.json` şeması: `always_on_top`, `refresh_open`, `refresh_closed`,
+      `pause_when_closed`, `close_to_tray`. `load_config` bilinmeyen/bozuk
+      değerleri varsayılana çeker (`_cfg_bool`, 1–1440 dk sınırı).
+    - `fetch_loop` aralıkları artık `cfg`'den okur; kapalıyken duraklatma
+      yalnızca 60 s'de bir `market_open()` kontrolü yapar (ağ isteği yok).
+      Elle **Yenile** duraklatmayı bir kez aşar (`_force_refresh`).
+    - ✕ / Alt+F4 `close_window()`: `close_to_tray` açık ve tepsi ya da kısayol
+      çalışıyorsa gizler, aksi halde uygulamayı kapatır (pencere kaybolmaz).
+    - Opaklık Canvas kaydırıcısı (dolgulu accent çizgi + topuz), switch'ler ve
+      segment düğmeleri ortak görsel dilde; seçili segment accent alt çizgiyle.
+    - Duman testi (`build/settings_check.py`, git dışı): tema/opaklık/aralık/
+      topmost/duraklatma/kapatma/konum/sıfırlama; `build/loop_check.py`:
+      duraklatma + elle yenileme (ağsız sahte `fetch_quote`). Görseller
+      `build/settings-*.png`.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat
