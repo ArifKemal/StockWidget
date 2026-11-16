@@ -3130,6 +3130,9 @@ class StockWidget:
                 default=True),
             pystray.MenuItem("Yenile", lambda *a: self.refresh_now()),
             pystray.MenuItem(
+                "Ayarlar…",
+                lambda *a: self.root.after(0, self.open_settings_editor)),
+            pystray.MenuItem(
                 "Semboller…",
                 lambda *a: self.root.after(0, self.open_symbol_editor)),
             pystray.Menu.SEPARATOR,

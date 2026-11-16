@@ -59,7 +59,7 @@ geçişi, fareyle zaman-fiyat-yüzde okuması.
 - **Portföy:** toplam değer, günlük değişim ve pozisyon başına K/Z.
 - **Görünüm:** Gece / Slate / Grafit / Açık tema, %60–100 opaklık, normal/kompakt,
   her zaman üstte.
-- **Tepsi:** göster/gizle, yenile, semboller, otomatik başlatma, çıkış.
+- **Tepsi:** göster/gizle, yenile, ayarlar, semboller, otomatik başlatma, çıkış.
 - **Dayanıklılık:** varsayılan açıkken 15 dk, kapalıyken 60 dk yenileme (Ayarlar'dan
   değiştirilebilir); hata sonrası 90 s, HTTP 429'da 5 dk bekleme; NYSE tatilleri
   kapalı sayılır; tek kopya çalışır. "Piyasa kapalıyken durdur" seçilirse kapalıyken
