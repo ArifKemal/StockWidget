@@ -2120,138 +2120,282 @@ class StockWidget:
             pass
         dark_title_bar(dlg)
 
-        tk.Label(dlg, text="PORTFÖY", bg=CARD, fg=FG,
-                 font=("Segoe UI", 9, "bold")).pack(
-            anchor="w", padx=s(18), pady=(s(14), 0))
-        tk.Label(dlg, text="Adet ve ortalama maliyet gir; boş satır pozisyonu kaldırır.",
-                 bg=CARD, fg=DIM, font=self.f_foot).pack(
-            anchor="w", padx=s(18), pady=(s(2), s(10)))
-        tk.Frame(dlg, bg=DIVIDER, height=1).pack(fill="x", padx=s(18))
-
-        listf = tk.Frame(dlg, bg=CARD)
-        listf.pack(fill="x", padx=s(14), pady=(s(10), 0))
-
         positions = self.cfg.get("positions") or {}
+        symbols = list(self.cfg["symbols"])
         cur = next((v.get("currency") for v in self.last.values()
                     if v.get("currency")), None) or "USD"
         rows = {}
 
-        def mk_entry(parent):
-            e = tk.Entry(parent, bg=CARD, fg=FG, insertbackground=FG,
-                         relief="flat", width=7, font=(self.mono, 9),
+        def shade(widget, color):
+            """Satır vurgusu: hücre ve içindeki parçaların zeminini boyar."""
+            try:
+                widget.configure(bg=color)
+            except tk.TclError:
+                pass
+            for child in widget.winfo_children():
+                shade(child, color)
+
+        def highlight(rowinfo):
+            if not dlg.winfo_exists():
+                return
+            for w in rowinfo["cells"]:
+                shade(w, HOVER)
+
+        def clear_unfocused(rowinfo):
+            if not dlg.winfo_exists():
+                return
+            try:
+                focus = dlg.focus_get()
+            except tk.TclError:
+                return
+            if focus in rowinfo["cells"]:
+                return
+            for w in rowinfo["cells"]:
+                shade(w, RAISED)
+
+        # ---- başlık ----
+        head = tk.Frame(dlg, bg=CARD)
+        head.pack(fill="x", padx=s(18), pady=(s(14), 0))
+        tk.Label(head, text="Portföy", bg=CARD, fg=FG,
+                 font=("Segoe UI", 12, "bold")).pack(side="left")
+        tk.Label(head, text=cur, bg=RAISED, fg=MUTED,
+                 font=("Segoe UI", 6, "bold")).pack(
+            side="left", padx=(s(8), 0), ipadx=s(4), ipady=s(1))
+        tk.Label(dlg, text="Adet ve ortalama maliyet gir; boş satır siler.",
+                 bg=CARD, fg=DIM, font=self.f_foot).pack(
+            anchor="w", padx=s(18), pady=(s(2), s(10)))
+
+        # ---- özet şeridi ----
+        summary = tk.Frame(dlg, bg=RAISED, highlightthickness=1,
+                           highlightbackground=DIVIDER)
+        summary.pack(fill="x", padx=s(18))
+        tk.Frame(summary, bg=ACCENT, width=max(2, s(3))).pack(
+            side="left", fill="y")
+        statsf = tk.Frame(summary, bg=RAISED)
+        statsf.pack(side="left", fill="both", expand=True)
+        stats = {}
+        for idx, (key, label) in enumerate((("value", "TOPLAM DEĞER"),
+                                            ("cost", "MALİYET"),
+                                            ("pnl", "K/Z"))):
+            statsf.grid_columnconfigure(idx, weight=1)
+            cell = tk.Frame(statsf, bg=RAISED)
+            cell.grid(row=0, column=idx, sticky="nsew",
+                      padx=(s(12), s(6)), pady=(s(8), s(9)))
+            tk.Label(cell, text=label, bg=RAISED, fg=DIM,
+                     font=("Segoe UI", 6, "bold")).pack(anchor="w")
+            big = tk.Label(cell, text="—", bg=RAISED, fg=FG,
+                           font=(self.mono, 11, "bold"))
+            big.pack(anchor="w")
+            sub = tk.Label(cell, text="", bg=RAISED, fg=DIM,
+                           font=("Segoe UI", 6))
+            sub.pack(anchor="w")
+            stats[key] = (big, sub)
+
+        # ---- tablo ----
+        body = tk.Frame(dlg, bg=CARD)
+        body.pack(fill="x", padx=s(18), pady=(s(12), 0))
+        left = tk.Frame(body, bg=CARD)
+        left.pack(side="left", fill="both", expand=True)
+
+        MINS = {0: s(58), 1: s(60), 2: s(74), 3: s(84), 4: s(62), 5: s(20)}
+        PADS = {0: (s(10), 0), 1: (s(2), 0), 2: (s(2), 0),
+                3: (s(6), s(6)), 4: (0, s(6)), 5: (0, 0)}
+
+        header = tk.Frame(left, bg=CARD)
+        header.pack(fill="x", pady=(0, s(4)))
+        for col in range(6):
+            header.grid_columnconfigure(
+                col, minsize=MINS[col], weight=1 if col == 3 else 0)
+        for col, text, anchor in ((0, "SEMBOL", "w"), (1, "ADET", "e"),
+                                  (2, "ORTALAMA", "e"), (3, "DEĞER", "e"),
+                                  (4, "K/Z", "e")):
+            tk.Label(header, text=text, bg=CARD, fg=DIM,
+                     font=("Segoe UI", 6, "bold"), anchor=anchor).grid(
+                row=0, column=col, sticky="ew", padx=PADS[col])
+
+        canvas = tk.Canvas(left, bg=CARD, highlightthickness=0, bd=0)
+        canvas.pack(fill="x")
+        vs = tk.Scrollbar(body, orient="vertical", command=canvas.yview,
+                          width=s(9), bg=CARD, troughcolor=CARD, bd=0,
+                          relief="flat", activebackground=BTN,
+                          highlightthickness=0)
+        canvas.configure(yscrollcommand=vs.set)
+
+        table = tk.Frame(canvas, bg=RAISED, highlightthickness=1,
+                         highlightbackground=DIVIDER)
+        win_id = canvas.create_window((0, 0), window=table, anchor="nw")
+        for col in range(6):
+            table.grid_columnconfigure(
+                col, minsize=MINS[col], weight=1 if col == 3 else 0)
+        table.bind("<Configure>", lambda e: canvas.configure(
+            scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(
+            win_id, width=e.width))
+
+        def mk_entry(parent, rowinfo):
+            e = tk.Entry(parent, bg=RAISED, fg=FG, insertbackground=FG,
+                         relief="flat", width=4, font=(self.mono, 9),
                          justify="right", highlightthickness=1,
                          highlightbackground=ENTRY_BORDER,
                          highlightcolor=ACCENT)
             e.bind("<KeyRelease>", lambda ev: recalc())
+            e.bind("<FocusIn>", lambda ev: (e.select_range(0, "end"),
+                                            highlight(rowinfo)))
+            e.bind("<FocusOut>", lambda ev: dlg.after_idle(
+                lambda: clear_unfocused(rowinfo)))
             return e
 
-        for sym in list(self.cfg["symbols"]):
+        for idx, sym in enumerate(symbols):
             p = positions.get(sym) or {}
-            card = tk.Frame(listf, bg=RAISED, highlightthickness=1,
-                            highlightbackground=DIVIDER)
-            card.pack(fill="x", pady=(0, s(8)))
-            inner = tk.Frame(card, bg=RAISED)
-            inner.pack(fill="x", padx=s(10), pady=s(9))
+            rowinfo = {"cells": []}
+            r = idx * 2
 
-            top = tk.Frame(inner, bg=RAISED)
-            top.pack(fill="x")
-            tk.Label(top, text=sym, bg=RAISED, fg=FG,
-                     font=self.f_sym).pack(side="left")
-            clear = tk.Button(top, text="✕", bg=RAISED, fg=DIM, bd=0,
-                              activebackground=RED_DIM, activeforeground=RED,
-                              font=("Segoe UI", 8), cursor="hand2")
-            clear.pack(side="right", padx=(s(6), 0))
-            value_lbl = tk.Label(top, text="—", bg=RAISED, fg=FG,
-                                 font=(self.mono, 8, "bold"))
-            value_lbl.pack(side="right")
+            c0 = tk.Frame(table, bg=RAISED)
+            c0.grid(row=r, column=0, sticky="nsew",
+                    padx=(s(10), 0), pady=s(6))
+            sym_lbl = tk.Label(c0, text=sym, bg=RAISED, fg=FG,
+                               font=self.f_sym, anchor="w")
+            sym_lbl.pack(fill="x")
 
-            mid = tk.Frame(inner, bg=RAISED)
-            mid.pack(fill="x", pady=(s(6), 0))
-            tk.Label(mid, text="Adet", bg=RAISED, fg=DIM,
-                     font=self.f_foot).pack(side="left", padx=(0, s(2)))
-            qty = mk_entry(mid)
+            c1 = tk.Frame(table, bg=RAISED)
+            c1.grid(row=r, column=1, sticky="nsew",
+                    padx=(s(2), 0), pady=s(4))
+            qty = mk_entry(c1, rowinfo)
             qty.insert(0, str(p.get("qty") or ""))
-            qty.pack(side="left", padx=(s(4), s(14)), ipady=s(2))
-            tk.Label(mid, text="Ortalama", bg=RAISED, fg=DIM,
-                     font=self.f_foot).pack(side="left", padx=(0, s(2)))
-            avg = mk_entry(mid)
+            qty.pack(fill="x", ipady=s(3))
+
+            c2 = tk.Frame(table, bg=RAISED)
+            c2.grid(row=r, column=2, sticky="nsew",
+                    padx=(s(2), 0), pady=s(4))
+            avg = mk_entry(c2, rowinfo)
             avg.insert(0, str(p.get("avg") or ""))
-            avg.pack(side="left", padx=(s(4), 0), ipady=s(2))
+            avg.pack(fill="x", ipady=s(3))
 
-            pnl_lbl = tk.Label(inner, text="", bg=RAISED, fg=DIM,
-                               font=("Segoe UI", 6), anchor="w")
-            pnl_lbl.pack(fill="x", pady=(s(4), 0))
-            rows[sym] = {"qty": qty, "avg": avg, "value": value_lbl,
+            c3 = tk.Frame(table, bg=RAISED)
+            c3.grid(row=r, column=3, sticky="nsew",
+                    padx=(s(6), s(6)), pady=s(6))
+            val_lbl = tk.Label(c3, text="—", bg=RAISED, fg=FG,
+                               font=(self.mono, 8, "bold"), anchor="e")
+            val_lbl.pack(fill="x")
+
+            c4 = tk.Frame(table, bg=RAISED)
+            c4.grid(row=r, column=4, sticky="nsew",
+                    padx=(0, s(6)), pady=s(6))
+            pnl_lbl = tk.Label(c4, text="", bg=RAISED, fg=DIM,
+                               font=("Segoe UI", 7, "bold"), anchor="e")
+            pnl_lbl.pack(fill="x")
+
+            c5 = tk.Frame(table, bg=RAISED)
+            c5.grid(row=r, column=5, sticky="nsew", pady=s(4))
+            clear = tk.Button(c5, text="✕", bg=RAISED, fg=DIM, bd=0,
+                              activebackground=RED_DIM,
+                              activeforeground=RED,
+                              font=("Segoe UI", 8), cursor="hand2",
+                              command=lambda q=qty, a=avg: (
+                                  q.delete(0, "end"),
+                                  a.delete(0, "end"), recalc()))
+            clear.pack()
+
+            rowinfo["cells"] = [c0, sym_lbl, c1, qty, c2, avg, c3, val_lbl,
+                                c4, pnl_lbl, c5, clear]
+            rows[sym] = {"qty": qty, "avg": avg, "value": val_lbl,
                          "pnl": pnl_lbl}
-            clear.config(command=lambda q=qty, a=avg: (
-                q.delete(0, "end"), a.delete(0, "end"), recalc()))
+            for w in rowinfo["cells"]:
+                w.bind("<Enter>", lambda ev, rr=rowinfo: highlight(rr),
+                       add="+")
+                w.bind("<Leave>", lambda ev, rr=rowinfo: dlg.after(
+                    30, lambda rr=rr: clear_unfocused(rr)), add="+")
 
-        tk.Frame(dlg, bg=DIVIDER, height=1).pack(fill="x", padx=s(18),
-                                                 pady=(s(10), s(6)))
-        tot = tk.Frame(dlg, bg=CARD)
-        tot.pack(fill="x", padx=s(18))
-        tk.Label(tot, text="Toplam değer", bg=CARD, fg=MUTED,
-                 font=self.f_foot).pack(side="left")
-        total_val = tk.Label(tot, text="—", bg=CARD, fg=FG,
-                             font=(self.mono, 10, "bold"))
-        total_val.pack(side="right")
-        total_pnl = tk.Label(tot, text="", bg=CARD, fg=DIM,
-                             font=("Segoe UI", 7, "bold"))
-        total_pnl.pack(side="right", padx=(0, s(10)))
+            if idx < len(symbols) - 1:
+                tk.Frame(table, bg=DIVIDER, height=1).grid(
+                    row=r + 1, column=0, columnspan=6, sticky="ew")
 
-        status = tk.Label(dlg, text="", bg=CARD, fg=DIM, font=self.f_foot,
-                          anchor="w")
-        status.pack(fill="x", padx=s(18), pady=(s(4), 0))
-        tk.Label(dlg, text="Değer ve K/Z son bilinen fiyatlara göre hesaplanır.",
-                 bg=CARD, fg=DIM, font=("Segoe UI", 6)).pack(
-            anchor="w", padx=s(18), pady=(0, s(4)))
+        if not symbols:
+            tk.Label(table, text="Takip listesi boş.\n"
+                                 "Sağ tık → Sembol ekle ile başla.",
+                     bg=RAISED, fg=DIM, font=self.f_foot,
+                     justify="center").grid(
+                row=0, column=0, columnspan=6, pady=s(24))
+
+        # ---- hesaplama ve kaydetme ----
+        def parse_num(widget):
+            txt = (widget.get() or "").strip().replace(",", ".")
+            if not txt:
+                return 0.0
+            try:
+                return float(txt)
+            except ValueError:
+                return None
 
         def recalc(event=None):
-            tv = tc = tp = 0.0
-            invalid = False
+            tv = tc = pnl_sum = tc_priced = 0.0
+            have_price = False
+            bad = None
             for sym, r in rows.items():
-                try:
-                    q = float((r["qty"].get() or "0").replace(",", "."))
-                    a = float((r["avg"].get() or "0").replace(",", "."))
-                except ValueError:
-                    r["value"].config(text="—", fg=RED)
-                    r["pnl"].config(text="geçersiz sayı", fg=RED)
-                    invalid = True
+                q = parse_num(r["qty"])
+                a = parse_num(r["avg"])
+                r["qty"].config(highlightbackground=(
+                    ENTRY_BORDER if q is not None else RED))
+                r["avg"].config(highlightbackground=(
+                    ENTRY_BORDER if a is not None else RED))
+                if q is None or a is None:
+                    bad = sym
+                    r["value"].config(text="—", fg=DIM)
+                    r["pnl"].config(text="geçersiz", fg=RED)
                     continue
-                info = self.last.get(sym) or {}
-                price = float(info.get("price") or a or 0)
-                if q > 0:
-                    value = q * price
-                    cost = q * a
-                    pnl = value - cost
-                    r["value"].config(text=fmt_money(value, cur), fg=FG)
-                    pct = (pnl / cost * 100.0) if cost else 0.0
-                    r["pnl"].config(
-                        text="Maliyet %s · K/Z %+.2f%%"
-                             % (fmt_money(cost, cur), pct),
-                        fg=GREEN if pnl >= 0 else RED)
-                    tv += value
-                    tc += cost
-                    tp += pnl
-                else:
+                if q <= 0:
                     r["value"].config(text="—", fg=DIM)
                     r["pnl"].config(text="", fg=DIM)
-            total_val.config(text=fmt_money(tv, cur) if tv else "—")
-            if tc:
-                total_pnl.config(text="%+.2f%%" % (tp / tc * 100.0),
-                                 fg=GREEN if tp >= 0 else RED)
+                    continue
+                info = self.last.get(sym) or {}
+                price = info.get("price")
+                cost = q * a
+                tc += cost
+                if price:
+                    value = q * float(price)
+                    have_price = True
+                    tc_priced += cost
+                    pnl_sum += value - cost
+                    r["value"].config(text=fmt_money(value, cur), fg=FG)
+                    if a > 0:
+                        r["pnl"].config(
+                            text="%+.2f%%" % ((value - cost) / cost * 100.0),
+                            fg=GREEN if value >= cost else RED)
+                    else:
+                        r["pnl"].config(text="maliyet yok", fg=AMBER)
+                else:
+                    value = cost
+                    r["value"].config(text=fmt_money(value, cur), fg=DIM)
+                    r["pnl"].config(text="veri yok", fg=DIM)
+                tv += value
+            stats["value"][0].config(
+                text=fmt_money(tv, cur) if tv else "—",
+                fg=FG if have_price else MUTED)
+            stats["cost"][0].config(text=fmt_money(tc, cur) if tc else "—")
+            if tc_priced:
+                pct = pnl_sum / tc_priced * 100.0
+                stats["pnl"][0].config(text="%+.2f%%" % pct,
+                                       fg=GREEN if pnl_sum >= 0 else RED)
+                pnl_sign = "+" if pnl_sum >= 0 else ""
+                stats["pnl"][1].config(
+                    text=pnl_sign + fmt_money(pnl_sum, cur), fg=DIM)
             else:
-                total_pnl.config(text="")
-            status.config(text="Geçersiz sayı var." if invalid else "",
-                          fg=RED if invalid else DIM)
+                stats["pnl"][0].config(text="—", fg=DIM)
+                stats["pnl"][1].config(text="")
+            if bad:
+                status.config(text="%s: geçersiz sayı." % bad, fg=RED)
+            else:
+                status.config(text="Değişiklikler Kaydet ile uygulanır.",
+                              fg=DIM)
 
         def save():
             out = {}
             for sym, r in rows.items():
-                try:
-                    q = float((r["qty"].get() or "0").replace(",", "."))
-                    a = float((r["avg"].get() or "0").replace(",", "."))
-                except ValueError:
+                q = parse_num(r["qty"])
+                a = parse_num(r["avg"])
+                if q is None or a is None:
+                    recalc()
+                    (r["qty"] if q is None else r["avg"]).focus_set()
                     status.config(text="%s: geçersiz sayı." % sym, fg=RED)
                     return
                 if q > 0:
@@ -2261,26 +2405,52 @@ class StockWidget:
             self.build_ui()
             self._restore_position()
             recalc()
-            status.config(text="Portföy kaydedildi.", fg=GREEN)
+            if out:
+                status.config(text="Kaydedildi · %d pozisyon" % len(out),
+                              fg=GREEN)
+            else:
+                status.config(text="Portföy boş.", fg=DIM)
 
-        btns = tk.Frame(dlg, bg=CARD)
-        btns.pack(fill="x", padx=s(14), pady=(s(8), s(14)))
-        tk.Button(btns, text="Kaydet", bg=ACCENT, fg="#ffffff", bd=0,
+        # ---- alt bar ----
+        tk.Frame(dlg, bg=DIVIDER, height=1).pack(fill="x", padx=s(18),
+                                                 pady=(s(12), 0))
+        status = tk.Label(dlg, text="", bg=CARD, fg=DIM, font=self.f_foot,
+                          anchor="w")
+        status.pack(fill="x", padx=s(18), pady=(s(6), 0))
+        footer = tk.Frame(dlg, bg=CARD)
+        footer.pack(fill="x", padx=s(18), pady=(s(6), s(14)))
+        tk.Button(footer, text="Kaydet", bg=ACCENT, fg="#ffffff", bd=0,
                   activebackground=ACCENT_HOVER, activeforeground="#ffffff",
                   font=("Segoe UI", 9, "bold"), cursor="hand2",
-                  command=save).pack(side="left", fill="x", expand=True,
-                                     ipady=s(4))
-        tk.Button(btns, text="Kapat", bg=BTN, fg=FG, bd=0,
+                  command=save).pack(side="right", ipadx=s(26), ipady=s(5))
+        tk.Button(footer, text="Kapat", bg=BTN, fg=FG, bd=0,
                   activebackground=BTN_HOVER, activeforeground=FG,
                   font=("Segoe UI", 9), cursor="hand2",
-                  command=dlg.destroy).pack(side="left", fill="x", expand=True,
-                                            padx=(s(6), 0), ipady=s(4))
+                  command=dlg.destroy).pack(side="right", padx=(0, s(6)),
+                                            ipadx=s(16), ipady=s(5))
+
+        # ---- yerleşim ----
+        dlg.update_idletasks()
+        rows_h = table.winfo_reqheight()
+        cap = s(280)
+        canvas.configure(height=min(rows_h, cap))
+        if rows_h > cap:
+            vs.pack(side="right", fill="y", padx=(s(4), 0))
+
+        dlg.bind("<MouseWheel>", lambda ev: canvas.yview_scroll(
+            -1 if ev.delta > 0 else 1, "units") if rows_h > cap else None)
+        dlg.bind("<Escape>", lambda ev: dlg.destroy())
+        dlg.bind("<Return>", lambda ev: save())
+        dlg.bind("<Control-s>", lambda ev: (save(), "break")[1])
+        dlg.bind("<Destroy>", lambda ev: (
+            setattr(self, "_portfolio_dlg", None)
+            if ev.widget is dlg else None))
 
         recalc()
         sm = ctypes.windll.user32.GetSystemMetrics
         sw_, sh_ = sm(0), sm(1)
         dlg.update_idletasks()
-        w, h = s(340), dlg.winfo_reqheight()
+        w, h = s(452), dlg.winfo_reqheight()
         dlg.geometry("%dx%d+%d+%d" % (w, h, sw_ // 2 - w // 2,
                                       sh_ // 2 - h // 2))
         return dlg

@@ -241,6 +241,22 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
     - 300 satırlık README 136 satıra indirildi: indirme ve hızlı başlangıç öne
       alındı, özellikler tek liste, veri/ayar bölümleri kısaltıldı, sorun giderme
       7 ve sınırlar 4 maddeye indirildi. Teknik ayrıntılar AGENT.md'de kalıyor.
+20. **Portföy düzenleyicisi yenilendi** —
+    - Eski "kart + iki etiketli alan" düzeni yerine modern bir tablo: solda
+      TOPLAM DEĞER / MALİYET / K/Z özet şeridi (accent çizgili), sütun başlıkları
+      (SEMBOL / ADET / ORTALAMA / DEĞER / K/Z), satır ayırıcıları.
+    - Satıra odaklanınca ya da fareyle üzerine gelince satır vurgulanır; ✕ ile
+      satır temizlenir. Geçersiz sayıda alan kırmızı çerçeveyle işaretlenir ve
+      satırda "geçersiz" yazar; Kaydet bu durumda kaydetmez.
+    - Fiyatı olmayan sembolde "veri yok" gösterilir (eskiden maliyeti fiyat
+      sayıp K/Z'yi 0 gösteriyordu). Toplam K/Z yalnızca fiyatı olan satırlardan
+      hesaplanır; mutlak K/Z özetin alt satırında.
+    - Uzun listeler 280 px'lik kaydırılabilir alanda (fare tekerleği + ince
+      kaydırma çubuğu); pencere ekranın ortasında açılır. Enter = Kaydet,
+      Esc = Kapat, Ctrl+S = Kaydet.
+    - Duman testi (`build/pf_check.py`, git dışı): 4 sembolle kaydetme ve
+      geçersiz giriş reddi; `build/pf_theme.py`: açık tema + 10 sembolle
+      kaydırma. Ekran görüntüleri `build/pf-*.png`.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat
