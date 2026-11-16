@@ -284,6 +284,7 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       Elle **Yenile** duraklatmayı bir kez aşar (`_force_refresh`).
     - ✕ / Alt+F4 `close_window()`: `close_to_tray` açık ve tepsi ya da kısayol
       çalışıyorsa gizler, aksi halde uygulamayı kapatır (pencere kaybolmaz).
+    - Tepsi menüsüne de **Ayarlar…** eklendi; pencere gizliyken de erişilebilir.
     - Opaklık Canvas kaydırıcısı (dolgulu accent çizgi + topuz), switch'ler ve
       segment düğmeleri ortak görsel dilde; seçili segment accent alt çizgiyle.
     - Duman testi (`build/settings_check.py`, git dışı): tema/opaklık/aralık/
