@@ -227,7 +227,8 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       bölümleri, "Aç / kapa" tablosu ve Paketleme bölümü güncellendi.
     - `v1.1.0` yayınlandı (Release başarılı). Assetler:
       `StockWidget-1.1.0.exe` `sha256:e20f6860…` (22.3 MB),
-      `StockWidget-1.1.0-portable.zip` `sha256:d631e71c…`,
+      `StockWidget-1.1.0-portable.zip` `sha256:38e76062…` (README 136 satıra
+      indirildikten sonra içindeki README yenilenip asset tekrar yüklendi),
       `StockWidget-1.1.0-setup.exe` `sha256:f0241530…`. İndirilen tek dosya
       exe'nin `FileVersion`/`ProductVersion` = 1.1.0 ve `--version` çıktısı
       doğrulandı.
