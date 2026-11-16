@@ -236,6 +236,10 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       `v1.1.0` ZIP'i README + LICENSE + `docs/` ile yeniden üretilip asset
       değiştirildi. GitHub indirme CDN'i eski dosyayı önbelleğe aldığı için
       doğrulamada URL'ye `?t=<unix>` eklenmeli.
+19. **README sadeleştirme** —
+    - 300 satırlık README 136 satıra indirildi: indirme ve hızlı başlangıç öne
+      alındı, özellikler tek liste, veri/ayar bölümleri kısaltıldı, sorun giderme
+      7 ve sınırlar 4 maddeye indirildi. Teknik ayrıntılar AGENT.md'de kalıyor.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat
