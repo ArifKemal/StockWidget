@@ -225,6 +225,17 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       düzeltilmiş commit'e taşınıp yeniden atıldı.
     - README "İndir" tablosu yeniden sıralandı; tek dosya / kurulum / ZIP
       bölümleri, "Aç / kapa" tablosu ve Paketleme bölümü güncellendi.
+    - `v1.1.0` yayınlandı (Release başarılı). Assetler:
+      `StockWidget-1.1.0.exe` `sha256:e20f6860…` (22.3 MB),
+      `StockWidget-1.1.0-portable.zip` `sha256:d631e71c…`,
+      `StockWidget-1.1.0-setup.exe` `sha256:f0241530…`. İndirilen tek dosya
+      exe'nin `FileVersion`/`ProductVersion` = 1.1.0 ve `--version` çıktısı
+      doğrulandı.
+    - Release ZIP'i `docs/` içermiyordu (workflow yalnızca README/LICENSE
+      kopyalıyordu). `release.yml` artık `docs/` klasörünü de kopyalıyor;
+      `v1.1.0` ZIP'i README + LICENSE + `docs/` ile yeniden üretilip asset
+      değiştirildi. GitHub indirme CDN'i eski dosyayı önbelleğe aldığı için
+      doğrulamada URL'ye `?t=<unix>` eklenmeli.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

@@ -60,6 +60,7 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item README.md, LICENSE -Destination dist\StockWidget -Force
+          Copy-Item docs -Destination dist\StockWidget -Recurse -Force
           Compress-Archive -Path dist\StockWidget\* `
             -DestinationPath "StockWidget-$env:APP_VERSION-portable.zip"
 
