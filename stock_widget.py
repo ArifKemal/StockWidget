@@ -1452,7 +1452,6 @@ class StockWidget:
         self._settings_pending = None
         self._settings_scroll = (0.0, 1.0)
 
-        self.startup_var = tk.BooleanVar(value=startup_enabled())
         self.hotkey_ok = None
         self.hotkey_queue = queue.Queue()
         self._build_menu()
@@ -1981,7 +1980,6 @@ class StockWidget:
 
     def apply_startup(self, value):
         set_startup(bool(value))
-        self.startup_var.set(startup_enabled())
         if self.tray_icon:
             try:
                 self.tray_icon.update_menu()
@@ -3148,7 +3146,6 @@ class StockWidget:
 
     def _tray_toggle_startup(self):
         set_startup(not startup_enabled())
-        self.startup_var.set(startup_enabled())
         if self.tray_icon:
             try:
                 self.tray_icon.update_menu()
