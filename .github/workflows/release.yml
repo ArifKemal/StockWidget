@@ -42,8 +42,18 @@ jobs:
           python -m py_compile stock_widget.py
           python -m unittest test_stock_widget.py
 
-      - name: Portatif derleme
+      - name: Portatif derleme (onedir, ZIP için)
         run: python -m PyInstaller --noconfirm --clean StockWidget.spec
+
+      - name: Tek dosya derleme (onefile, ana indirme)
+        run: python -m PyInstaller --noconfirm --clean --distpath dist-onefile StockWidget-onefile.spec
+
+      - name: Tek dosya exe'yi adlandır ve doğrula
+        shell: pwsh
+        run: |
+          Copy-Item dist-onefile\StockWidget.exe "StockWidget-$env:APP_VERSION.exe" -Force
+          $v = & ".\StockWidget-$env:APP_VERSION.exe" --version
+          if ($v -ne "StockWidget $env:APP_VERSION") { throw "Sürüm uyuşmuyor: $v" }
 
       - name: Portatif ZIP
         shell: pwsh
@@ -70,5 +80,6 @@ jobs:
           name: StockWidget ${{ env.APP_VERSION }}
           generate_release_notes: true
           files: |
+            StockWidget-${{ env.APP_VERSION }}.exe
             StockWidget-${{ env.APP_VERSION }}-portable.zip
             Output/StockWidget-${{ env.APP_VERSION }}-setup.exe

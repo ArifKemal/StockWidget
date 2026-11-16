@@ -46,6 +46,22 @@ def main():
     with io.open(vi_path, "w", encoding="utf-8", newline="") as f:
         f.write(vi)
 
+    # Kurulum betiğinin varsayılan sürümü (ISCC /D vermezse bu kullanılır).
+    # UTF-8 BOM korunmalı; yoksa Inno Türkçe karakterleri yanlış okur.
+    iss_path = os.path.join(ROOT, "installer.iss")
+    if os.path.exists(iss_path):
+        with io.open(iss_path, encoding="utf-8-sig", newline="") as f:
+            iss = f.read()
+        iss, iss_count = re.subn(r'#define MyAppVersion "[^"]*"',
+                                 '#define MyAppVersion "%s"' % version,
+                                 iss, count=1)
+        if iss_count == 1:
+            with io.open(iss_path, "w", encoding="utf-8-sig",
+                         newline="") as f:
+                f.write(iss)
+        else:
+            print("warning: MyAppVersion line not found in installer.iss")
+
     print("version %s written" % version)
     return 0
 

@@ -15,32 +15,50 @@ pencerede. Arayüz Türkçe.
 
 | Ne | Kim için | Dosya |
 |---|---|---|
-| **Kurulum paketi** (önerilen) | Herkes | [Releases](https://github.com/ArifKemal/StockWidget/releases/latest) → `StockWidget-<sürüm>-setup.exe` |
-| **Portatif ZIP** | Kurulum istemeyen | `StockWidget-<sürüm>-portable.zip` |
+| **Tek dosya** (önerilen) | Herkes | [Releases](https://github.com/ArifKemal/StockWidget/releases/latest) → `StockWidget-<sürüm>.exe` |
+| **Kurulum paketi** | Kısayol, otomatik başlatma ve kaldırma isteyen | `StockWidget-<sürüm>-setup.exe` |
+| **ZIP (yedek)** | Tek dosya antivirüs tarafından engellenirse | `StockWidget-<sürüm>-portable.zip` |
 | **Kaynak** | Python bilen | `git clone` + `pip install -r requirements.txt` |
-
-Kurulum yönetici hakkı istemez; program kullanıcı hesabına kurulur.
-
-- Program: `%LOCALAPPDATA%\Programs\StockWidget`
-- Ayarlar ve log: `%APPDATA%\StockWidget`
-- Kaldırma: Başlat menüsü → **StockWidget kaldır** (ayarlar korunur)
 
 > **SmartScreen uyarısı.** Dosyalar kod imzalı değil. "Windows korumalı bilgisayarınızı
 > korudu" penceresinde **Ek bilgi → Yine de çalıştır** deyin. Kaynak koddan kendiniz
 > derlerseniz uyarı çıkmaz. İmzalama durumu ve ücretsiz SignPath başvuru adımları:
 > [docs/imzalama.md](docs/imzalama.md).
 
-### Portatif kullanım
+### Tek dosya kullanımı
 
-ZIP'i bir klasöre açıp `StockWidget.exe` dosyasını çalıştırın. ZIP kökünde
-`README.md`, `LICENSE` ve `docs/` ekran görüntüleri de bulunur; çevrimdışıyken de
-dokümana erişebilirsiniz. Varsayılan olarak ayarlar yine `%APPDATA%\StockWidget`
-altında tutulur. Gerçek portatif davranış (ayarların exe yanında kalması) için:
+`StockWidget-<sürüm>.exe` dosyasını indirip çalıştırın. Kurulum yok, yönetici
+hakkı gerekmez. Dosya her açılışta geçici klasöre açıldığı için ilk pencere
+birkaç saniye gecikebilir; widget zaten açılışta bir kez başlar.
+
+Ayarlar ve log `%APPDATA%\StockWidget` altında tutulur. Gerçek portatif davranış
+(ayarların exe yanında kalması) için:
 
 ```powershell
 $env:SW_DATA_DIR = "$PWD\veri"
-.\StockWidget.exe
+.\StockWidget-1.1.0.exe
 ```
+
+### Kurulum paketi (isteğe bağlı)
+
+Kurulum yönetici hakkı istemez; program kullanıcı hesabına kurulur. Başlat menüsü
+kısayolu, isteğe bağlı masaüstü kısayolu, otomatik başlatma ve kaldırma girişi
+sağlar.
+
+- Program: `%LOCALAPPDATA%\Programs\StockWidget`
+- Ayarlar ve log: `%APPDATA%\StockWidget`
+- Kaldırma: Başlat menüsü → **StockWidget kaldır** (ayarlar korunur)
+
+Kısıtlı (kurumsal) makinelerde Başlat menüsü veya kayıt defteri yazımı
+engellenirse kurulum bunu algılar, hangi adımın engellendiğini söyler ve
+portatif sürümü önerir.
+
+### ZIP (yedek)
+
+Tek dosya antivirüs/SmartScreen tarafından engellenirse ZIP'i bir klasöre açıp
+`StockWidget.exe` dosyasını çalıştırın. Bu sürüm `_internal` klasörüyle gelir,
+açılışı daha hızlıdır. ZIP kökünde `README.md`, `LICENSE` ve `docs/` da bulunur;
+çevrimdışıyken dokümana erişebilirsiniz.
 
 ## Neler var
 
@@ -99,6 +117,7 @@ dosyasına yazılır.
 
 | Ne | Nasıl |
 |---|---|
+| Aç (tek dosya) | Exe'yi çift tıkla |
 | Aç (kurulu) | Başlat menüsü / masaüstü kısayolu |
 | Göster / gizle | **Ctrl+Alt+S**, tray menüsü, karttaki **✕** |
 | Tamamen çık | Sağ tık > **Çıkış**, tray > **Çıkış** |
@@ -195,22 +214,31 @@ config varsayılanları.
 
 ```powershell
 pip install pyinstaller
-python tools/bump_version.py 1.0.0
+python tools/bump_version.py 1.1.0
+
+# Tek dosya (ana indirme)
+python -m PyInstaller --noconfirm --clean --distpath dist-onefile StockWidget-onefile.spec
+# çıktı: dist-onefile\StockWidget.exe
+
+# onedir (ZIP yedeği)
 python -m PyInstaller --noconfirm --clean StockWidget.spec
-# çıktı: dist\StockWidget\StockWidget.exe  (onedir)
+# çıktı: dist\StockWidget\StockWidget.exe
 
 # Kurulum paketi (Inno Setup 6 gerekir)
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" "/DMyAppVersion=1.0.0" installer.iss
-# çıktı: Output\StockWidget-1.0.0-setup.exe
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" "/DMyAppVersion=1.1.0" installer.iss
+# çıktı: Output\StockWidget-1.1.0-setup.exe
 ```
 
-- `StockWidget.spec`: onedir, `--noconsole`, `stock.ico`, sürüm bilgisi.
+- `StockWidget-onefile.spec`: tek dosya, `--noconsole`, `stock.ico`, sürüm bilgisi.
+  Ana indirme budur; açılışta geçici klasöre açılır.
+- `StockWidget.spec`: onedir, aynı içerik ayrı `_internal` klasöründe (ZIP yedeği).
 - `installer.iss`: kullanıcı bazlı kurulum, kısayollar, isteğe bağlı otostart,
   yükseltmede çalışan kopyayı `--quit` ile kapatma, kaldırmada ayarları koruma.
   Ayrıca **ön kontrol** yapar: `{app}` klasörü ve HKCU yazılamıyorsa ham
-  "Error 5" yerine ne yapılacağını söyleyen mesaj verip portatif ZIP'i önerir;
+  "Error 5" yerine ne yapılacağını söyleyen mesaj verip portatif sürümü önerir;
   Başlat menüsü/masaüstü yazılamıyorsa kısayolları atlar, kurulumu düşürmez.
-- `tools/bump_version.py`: sürümü `stock_widget.py` ve `version_info.txt`'e yazar.
+- `tools/bump_version.py`: sürümü `stock_widget.py`, `version_info.txt` ve
+  `installer.iss` varsayılanına yazar.
 - `tools/screenshot.py`: README görsellerini gerçek uygulamadan üretir.
 - `--paths` bayrağı ayar/log dosyasının nerede olduğunu yazdırır.
 

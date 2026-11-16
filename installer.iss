@@ -8,7 +8,7 @@
 ;   kayıt   : HKCU\Software\Microsoft\Windows\CurrentVersion\Run
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.0"
+  #define MyAppVersion "1.1.0"
 #endif
 
 #define MyAppName "StockWidget"

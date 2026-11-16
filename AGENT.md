@@ -10,10 +10,11 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `AGENT.md` — bu dosya: mimari kurallar + değişiklik günlüğü
 - `test_stock_widget.py` — stdlib `unittest` birim testleri (ağa çıkmaz)
 - `LICENSE` — MIT (2026 Arif Kemal)
-- `StockWidget.spec` — PyInstaller onedir derleme tanımı
-- `installer.iss` — Inno Setup 6 kullanıcı bazlı kurulum betiği
+- `StockWidget-onefile.spec` — PyInstaller **onefile** derleme tanımı (ana indirme)
+- `StockWidget.spec` — PyInstaller onedir derleme tanımı (ZIP yedeği)
+- `installer.iss` — Inno Setup 6 kullanıcı bazlı kurulum betiği (isteğe bağlı)
 - `version_info.txt` — exe sürüm bilgisi (PyInstaller)
-- `tools/bump_version.py` — sürümü kaynak + version_info'ya yazar
+- `tools/bump_version.py` — sürümü kaynak + version_info + installer.iss'e yazar
 - `tools/screenshot.py` — README görsellerini gerçek uygulamadan üretir
 - `.github/workflows/ci.yml` / `release.yml` — test+derleme / etiketli sürüm
 - `toggle.vbs` — kaynak modunda masaüstü kısayolu (kurulu sürümde `StockWidget.exe --toggle`)
@@ -23,7 +24,7 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `docs/imzalama.md` — kod imzalama (SmartScreen / SignPath) durumu ve adımları
 - `config.json` / `sw.log` — kaynak modunda çalışma zamanı dosyaları, `.gitignore`'da
 - `%APPDATA%\StockWidget\` — kurulu/portatif sürümde ayar + log (SW_DATA_DIR ile değiştirilebilir)
-- `build/`, `dist/`, `Output/` — derleme çıktıları, `.gitignore`'da
+- `build/`, `dist/`, `dist-onefile/`, `Output/` — derleme çıktıları, `.gitignore`'da
 
 ## Mimari kuralları (bozmadan değişiklik yap)
 - **Tk tek thread.** Ağ işi `fetch_loop` thread'inde döner; sonuçlar `self.queue`'ya yazılır,
@@ -200,6 +201,26 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       `sha256:14732457…`).
     - Portatif ZIP son hâli: repo dokümanlarıyla eşitlendi (`README.md`,
       `LICENSE`, `docs/*.md` + ekran görüntüleri), `sha256:64b9c458…`.
+18. **Tek dosya (onefile) dağıtımı — v1.1.0'ın ana indirmesi** —
+    - Ürün küçük bir widget olduğu için kurulum paketi ana indirme olmaktan
+      çıkarıldı. Yeni sıralama: `StockWidget-<sürüm>.exe` (onefile, ana),
+      `StockWidget-<sürüm>-setup.exe` (isteğe bağlı), `-portable.zip` (yedek).
+    - `StockWidget-onefile.spec` eklendi (`EXE(...)` içine `a.binaries` /
+      `a.datas`, `COLLECT` yok, `runtime_tmpdir=None`, `console=False`). Yerel
+      derleme ~26 MB; `--version`, `--paths`, `--toggle`, `--quit` uçtan uca
+      denendi. Onefile her açılışta `%TEMP%`'e açıldığı için ilk pencere birkaç
+      saniye gecikir; README bunu açıkça yazıyor ve ZIP'i yedek gösteriyor.
+    - `ci.yml`: onedir + onefile derlemesi ve iki exe için `--version` duman
+      testi. `release.yml`: onefile derleme, `StockWidget-$V.exe` üretimi +
+      sürüm doğrulaması, 3 asset yükleme.
+    - `tools/bump_version.py` artık `installer.iss` içindeki `MyAppVersion`
+      varsayılanını da günceller (UTF-8 BOM korunarak; BOM yoksa Inno Türkçe
+      karakterleri bozar).
+    - Not: onefile testinde "ikinci kopya" hatası görüldü; nedeni uygulama
+      değil, önceki testlerden kalan bir `pythonw.exe`'nin mutex'i tutmasıydı.
+      Test öncesi `Get-Process pythonw` kontrol edilmeli.
+    - README "İndir" tablosu yeniden sıralandı; tek dosya / kurulum / ZIP
+      bölümleri, "Aç / kapa" tablosu ve Paketleme bölümü güncellendi.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat
@@ -212,6 +233,10 @@ python stock_widget.py --toggle            :: çalışan kopyayı göster/gizle
 python stock_widget.py --quit              :: temiz çıkış
 
 :: paketleme (yerel)
+python -m PyInstaller --noconfirm --clean --distpath dist-onefile StockWidget-onefile.spec
+dist-onefile\StockWidget.exe --version
+dist-onefile\StockWidget.exe --paths
+
 python -m PyInstaller --noconfirm --clean StockWidget.spec
 dist\StockWidget\StockWidget.exe --version
 dist\StockWidget\StockWidget.exe --paths
@@ -219,6 +244,10 @@ dist\StockWidget\StockWidget.exe --paths
 :: kurulum paketi (Inno Setup 6 kuruluysa)
 & "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer.iss
 ```
+
+Onefile exe `%TEMP%`'e açıldığı için kısıtlı makinelerde test ederken
+`$env:TEMP` / `$env:TMP` yazılabilir bir klasöre verilmeli. "ikinci kopya"
+logu görülürse önce eski `pythonw.exe` / `StockWidget.exe` süreçlerini kapat.
 
 `SW_DATA_DIR` ile ayar/log dizinini geçici bir klasöre alıp gerçek `%APPDATA%`
 verisini kirletmeden test et:

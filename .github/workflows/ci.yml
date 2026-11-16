@@ -34,4 +34,8 @@ jobs:
           python stock_widget.py --version
 
       - name: Paketleme dumanı (PyInstaller)
-        run: python -m PyInstaller --noconfirm --clean StockWidget.spec
+        run: |
+          python -m PyInstaller --noconfirm --clean StockWidget.spec
+          python -m PyInstaller --noconfirm --clean --distpath dist-onefile StockWidget-onefile.spec
+          & ".\dist-onefile\StockWidget.exe" --version
+          & ".\dist\StockWidget\StockWidget.exe" --version

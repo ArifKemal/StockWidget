@@ -9,5 +9,6 @@ _hover_preview.png
 # Derleme çıktıları
 build/
 dist/
+dist-onefile/
 Output/
 *.zip

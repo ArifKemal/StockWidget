@@ -29,7 +29,7 @@ except ImportError:
     PIL_AVAILABLE = False
 
 APP_NAME = "StockWidget"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 FROZEN = bool(getattr(sys, "frozen", False))
 
 # PyInstaller: kod _MEIPASS'e açılır, kalıcı veri oraya yazılamaz.
