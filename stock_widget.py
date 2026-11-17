@@ -3142,6 +3142,32 @@ class StockWidget:
 
     # ---------- tray ----------
 
+    @staticmethod
+    def _patch_tray_message_filter():
+        """Frozen exe'de pystray'in mesaj filtresi çağrısı WinError 5 veriyor.
+
+        ChangeWindowMessageFilterEx yalnızca explorer yeniden başladığında
+        simgenin geri gelmesini sağlar; başarısız olursa tepsi simgesi yine
+        çalışır (Shell_NotifyIcon etkilenmez). Bu yüzden hatayı yutuyoruz.
+        """
+        try:
+            from pystray._util import win32 as pystray_win32
+        except ImportError:
+            return
+        original = pystray_win32.ChangeWindowMessageFilterEx
+        state = {"warned": False}
+
+        def tolerant(*args, **kwargs):
+            try:
+                return original(*args, **kwargs)
+            except OSError:
+                if not state["warned"]:
+                    state["warned"] = True
+                    log.info("tepsi mesaj filtresi uygulanamadı (önemsiz)")
+                return 0
+
+        pystray_win32.ChangeWindowMessageFilterEx = tolerant
+
     def _tray_image(self):
         img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
@@ -3192,8 +3218,20 @@ class StockWidget:
     def _setup_tray(self):
         if not (TRAY_AVAILABLE and PIL_AVAILABLE):
             return
+        self._patch_tray_message_filter()
         self.tray_icon = self._create_tray_icon()
         threading.Thread(target=self._tray_run, daemon=True).start()
+        self.root.after(1500, self._log_tray_state)
+
+    def _log_tray_state(self):
+        """Tanı: tepsi simgesi bildirim alanına eklendi mi?"""
+        if not self.tray_icon:
+            return
+        try:
+            visible = bool(self.tray_icon.visible)
+        except Exception:
+            visible = False
+        log.info("tepsi simgesi: %s", "hazır" if visible else "görünür değil")
 
     def _tray_run(self):
         # Tepsi simgesi bazı oturumlarda (uzak masaüstü/servis) engellenebilir;

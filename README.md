@@ -132,6 +132,12 @@ etiketten alınır (`git tag v1.1.0 && git push --tags`).
 - **Veri gelmiyor:** internet/Yahoo erişimini kontrol edin. 429 ise 5 dk bekleyin.
 - **Tepsi ikonu yok / köşeler keskin:** `pystray` ve `pillow` eksik olabilir
   (kaynak modunda); uygulama yine çalışır.
+- **Tepsi ikonu görünmüyor (Windows 11):** Simge gizli simgeler alanındadır —
+  görev çubuğundaki **^** okuna bakın, oradaki simgeyi sağ tık → sabitleyin ya
+  da **Ayarlar → Kişiselleştirme → Görev çubuğu → Diğer sistem tepsisindeki
+  simgeler** listesinden StockWidget'ı açın.
+- **Simge/Ayarlar kaydedilmiyor:** Malwarebytes gibi bir güvenlik yazılımı
+  imzasız exe'yi engelliyor olabilir; StockWidget.exe için istisna ekleyin.
 - **Kısayol çalışmıyor:** Ctrl+Alt+S başka uygulamada tanımlı olabilir.
 - **Kurulum "Error 5" diyor:** makine kısıtlı olabilir (Başlat menüsü/kayıt
   defteri yazımı engelli). Kurulum bunu söyler; portatif sürümü kullanın.

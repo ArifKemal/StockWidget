@@ -299,6 +299,21 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       (`_on_double_click` "current" etiketini kontrol eder).
     - Glif notu: `Segoe UI` bold U+27F3'ü tofu kutusu olarak çiziyor;
       `("Segoe UI Symbol", 11)` normal kullanılmalı.
+23. **Tepsi simgesi düzeltmesi** —
+    - Belirti: derlenmiş (onefile) exe'de tepsi simgesi hiç oluşmuyordu;
+      `sw.log`'a `PermissionError: [WinError 5]` düşüyordu.
+    - Neden: `pystray` → `ChangeWindowMessageFilterEx`. Bu çağrı yalnızca
+      explorer yeniden başladığında simgenin geri gelmesini sağlar; başarısız
+      olması simgeyi engellemez. Malwarebytes gibi güvenlik yazılımları imzasız
+      exe'lerde bu API'yi engelleyebiliyor.
+    - Çözüm: `_patch_tray_message_filter()` pystray'in fonksiyonunu sarıp
+      `OSError`'ı yutuyor (tek satır info log). `_setup_tray` bunu simge
+      oluşturmadan önce çağırıyor.
+    - Tanı: `_log_tray_state()` 1,5 s sonra `tepsi simgesi: hazır` /
+      `görünür değil` yazar. Doğrulandı: `tepsi simgesi: hazır`.
+    - Not: aynı güvenlik yazılımı imzasız exe'nin `%APPDATA%`'ya yazmasını da
+      engelleyebilir (config/log kaydedilmez); istisna eklenmeli. Kaynak modda
+      sorun yok. Windows 11 yeni simgeleri **^** gizli alanına koyabilir.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat
