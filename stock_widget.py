@@ -1733,15 +1733,15 @@ class StockWidget:
                          outline=DIVIDER)
         c.create_text(self.PAD, self.s(17), text="TAKİP LİSTESİ",
                       anchor="w", fill=MUTED, font=self.f_title)
-        self.close_id = c.create_text(W - self.PAD, self.s(9), text="✕",
-                                      anchor="ne", fill=DIM,
+        self.close_id = c.create_text(W - self.PAD - self.s(3), self.s(16),
+                                      text="✕", anchor="center", fill=DIM,
                                       font=("Segoe UI", 9),
                                       tags=("close_btn",))
-        self.refresh_id = c.create_text(W - self.PAD - self.s(19), self.s(8),
-                                        text="⟳", anchor="ne", fill=MUTED,
+        self.refresh_id = c.create_text(W - self.PAD - self.s(21), self.s(16),
+                                        text="⟳", anchor="center", fill=MUTED,
                                         font=("Segoe UI Symbol", 11),
                                         tags=("refresh_btn",))
-        time_x = W - self.PAD - self.s(40)
+        time_x = W - self.PAD - self.s(34)
         dot_x = time_x - self.s(30)
         self.dot_id = c.create_oval(dot_x, self.s(14),
                                     dot_x + self.s(5), self.s(19),
