@@ -1738,7 +1738,7 @@ class StockWidget:
                                       font=("Segoe UI", 9),
                                       tags=("close_btn",))
         self.refresh_id = c.create_text(W - self.PAD - self.s(19), self.s(8),
-                                        text="⟳", anchor="ne", fill=DIM,
+                                        text="⟳", anchor="ne", fill=MUTED,
                                         font=("Segoe UI Symbol", 11),
                                         tags=("refresh_btn",))
         time_x = W - self.PAD - self.s(40)
