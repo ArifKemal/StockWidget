@@ -291,6 +291,14 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       topmost/duraklatma/kapatma/konum/sıfırlama; `build/loop_check.py`:
       duraklatma + elle yenileme (ağsız sahte `fetch_quote`). Görseller
       `build/settings-*.png`.
+22. **Kart başlığında yenile düğmesi** —
+    - ✕'nin soluna ⟳ eklendi; saat/piyasa noktası sola kaydı. Tıklama
+      `refresh_now()` çağırır (duraklatmayı bir kez aşar), simge 0,9 s accent
+      ile vurgulanır; hover accent, normalde DIM.
+    - Simge üzerinde çift tıklama sembol düzenleyicisini açmaz
+      (`_on_double_click` "current" etiketini kontrol eder).
+    - Glif notu: `Segoe UI` bold U+27F3'ü tofu kutusu olarak çiziyor;
+      `("Segoe UI Symbol", 11)` normal kullanılmalı.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

@@ -42,6 +42,7 @@ $env:SW_DATA_DIR = "$PWD\veri"
 | Ne | Nasıl |
 |---|---|
 | Göster / gizle | **Ctrl+Alt+S**, tepsi menüsü veya karttaki **✕** (varsayılan: tepsiye gizler) |
+| Yenile | Karttaki **⟳** ya da sağ tık → **Yenile** |
 | Tamamen çık | Sağ tık → **Çıkış**, tepsi → **Çıkış** ya da Ayarlar'da "kapatınca tepsiye gizle" kapalıyken **✕** |
 | Taşı | Kartı sürükle; konum hatırlanır |
 | Sembol ekle / çıkar | Sağ tık → **Sembol ekle / çıkar…** |

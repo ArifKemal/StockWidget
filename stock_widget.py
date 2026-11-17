@@ -1476,6 +1476,13 @@ class StockWidget:
                                                               fill=DIM))
         self.canvas.tag_bind("close_btn", "<Button-1>",
                              lambda e: self.root.after(10, self.close_window))
+        self.canvas.tag_bind("refresh_btn", "<Enter>",
+                             lambda e: self._set_refresh_color(ACCENT))
+        self.canvas.tag_bind("refresh_btn", "<Leave>",
+                             lambda e: self._set_refresh_color(DIM))
+        self.canvas.tag_bind("refresh_btn", "<Button-1>",
+                             lambda e: self.root.after(
+                                 10, self._header_refresh))
         self.root.protocol("WM_DELETE_WINDOW", self.close_window)
 
         self._setup_tray()
@@ -1703,6 +1710,12 @@ class StockWidget:
     def _row_y(self, index):
         return self.HEADER_H + index * self.ROW_H
 
+    def _set_refresh_color(self, color):
+        try:
+            self.canvas.itemconfig("refresh_btn", fill=color)
+        except tk.TclError:
+            pass
+
     def _row_height(self):
         n = len(self.cfg["symbols"])
         extra = self.s(26) if self._has_portfolio() else 0
@@ -1724,7 +1737,11 @@ class StockWidget:
                                       anchor="ne", fill=DIM,
                                       font=("Segoe UI", 9),
                                       tags=("close_btn",))
-        time_x = W - self.PAD - self.s(17)
+        self.refresh_id = c.create_text(W - self.PAD - self.s(19), self.s(8),
+                                        text="⟳", anchor="ne", fill=DIM,
+                                        font=("Segoe UI Symbol", 11),
+                                        tags=("refresh_btn",))
+        time_x = W - self.PAD - self.s(40)
         dot_x = time_x - self.s(30)
         self.dot_id = c.create_oval(dot_x, self.s(14),
                                     dot_x + self.s(5), self.s(19),
@@ -1937,6 +1954,10 @@ class StockWidget:
             self.canvas.itemconfig(hid, fill="")
 
     def _on_double_click(self, event):
+        current = self.canvas.find_withtag("current")
+        tags = self.canvas.gettags(current[0]) if current else ()
+        if "refresh_btn" in tags or "close_btn" in tags:
+            return
         if event.y < self.HEADER_H or event.y > self._row_height() - self.s(24):
             self.open_symbol_editor()
 
@@ -1961,6 +1982,18 @@ class StockWidget:
     def refresh_now(self):
         self._force_refresh = True
         self.wake.set()
+
+    def _header_refresh(self):
+        """Kart başlığındaki yenile simgesi: yeniler ve kısa süre vurgular."""
+        self.refresh_now()
+        self._set_refresh_color(ACCENT)
+        try:
+            self.root.after(900, self._refresh_icon_idle)
+        except tk.TclError:
+            pass
+
+    def _refresh_icon_idle(self):
+        self._set_refresh_color(DIM)
 
     # ---------- detail panel ----------
 
