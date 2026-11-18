@@ -2156,7 +2156,8 @@ class StockWidget:
         x2 = self.W - self.PAD
         x1 = x2 - pw
         y1 = y + self.ro(26)
-        self._round_rect(x1, y1, x2, y1 + ph, ph // 2, fill=bg)
+        self._round_rect(x1, y1, x2, y1 + ph, ph // 2, fill=bg,
+                         tags=(it["tag"],))
         c.create_text((x1 + x2) / 2.0, y1 + ph / 2.0, text=txt, fill=col,
                       font=self.f_pct, tags=(it["tag"],))
         # şirket adı (sparkline ile rozet arasında)

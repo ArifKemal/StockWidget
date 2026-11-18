@@ -379,6 +379,18 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       (~150 ms, y 247→240), kapanış alpha→0 (~125 ms'de yok), sekme vurgusu
       x 28.9→55.0 (~160 ms), kart gizle alpha→0 + withdraw (~116 ms), kart
       göster 0.32→0.97 (~150 ms). Testler: 27/27.
+28. **Kart rozetinin sol tarafındaki renk artığı** —
+    - Belirti: yüzdelik rozetlerinin solunda koyu kırmızı/yeşil yarım daire
+      kalıntılar; rozet metni kısalınca/genişleyince belirginleşiyordu.
+    - Neden: `_render_row` rozet arka planını (`_round_rect`) satır etiketi
+      vermeden çiziyordu; `c.delete(it["tag"])` bu şekilleri silmediği için
+      her yenilemede eski rozet tuvalde kalıyordu (metin ve fiyat siliniyordu).
+    - Düzeltme: rozet arka planına `tags=(it["tag"],)` eklendi; yenilemede eski
+      rozet tamamen siliniyor.
+    - Doğrulama: yeni `test_row_badge_cleared_between_refreshes` (eski kodda
+      15 öğe, beklenen 9; düzeltmeyle 9) ve `build/check_badge.py` (geçici):
+      yeşil +7.14% → kırmızı -3.61% yenilemesinde rozet solunda eski kodda
+      16 artık piksel, düzeltmeyle 0. Testler: 28/28.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

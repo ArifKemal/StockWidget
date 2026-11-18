@@ -285,6 +285,87 @@ class HelpersTest(unittest.TestCase):
 
 
 
+class _FakeCanvas:
+    """Tk tuvali yerine çizilen öğelerin etiketlerini kaydeder."""
+
+    def __init__(self):
+        self.items = []
+        self._id = 0
+
+    def _add(self, kind, tags):
+        self._id += 1
+        self.items.append({"id": self._id, "kind": kind,
+                           "tags": tuple(tags or ())})
+        return self._id
+
+    def delete(self, tag):
+        self.items = [it for it in self.items
+                      if it["id"] != tag and tag not in it["tags"]]
+
+    def itemconfig(self, item, **kwargs):
+        pass
+
+    def create_text(self, *args, **kwargs):
+        return self._add("text", kwargs.get("tags"))
+
+    def create_rectangle(self, *args, **kwargs):
+        return self._add("rect", kwargs.get("tags"))
+
+    def create_arc(self, *args, **kwargs):
+        return self._add("arc", kwargs.get("tags"))
+
+    def create_line(self, *args, **kwargs):
+        return self._add("line", kwargs.get("tags"))
+
+    def create_oval(self, *args, **kwargs):
+        return self._add("oval", kwargs.get("tags"))
+
+    def create_image(self, *args, **kwargs):
+        return self._add("image", kwargs.get("tags"))
+
+
+class RowRenderTest(unittest.TestCase):
+    """Kart satırı yenilenirken eski çizimler tuvalde kalmamalı."""
+
+    def _widget(self):
+        w = sw.StockWidget.__new__(sw.StockWidget)
+        w.canvas = _FakeCanvas()
+        w.items = {"AAA": {"tag": "row_AAA", "y": 0, "price": None}}
+        w.cfg = {"extended_hours": True, "symbols": ["AAA"]}
+        w.W = 300
+        w.PAD = 10
+        w.offline = False
+        w._row_photos = {}
+        w.font_pct = _StubFont()
+        w.font_name = _StubFont()
+        w.f_pct = ("Segoe UI", 8, "bold")
+        w.f_name = ("Segoe UI", 7)
+        w.ro = lambda v: int(round(v))
+        w.s = lambda v: int(round(v))
+        w._ellipsize = lambda text, font, px: text
+        return w
+
+    def _info(self, **over):
+        info = {"change_pct": 7.14, "change_abs": 0.34, "price": 5.10,
+                "currency": "USD", "name": "Test Inc", "spark": [],
+                "ext_session": "post", "ext_price": 5.10,
+                "ext_change_pct": 7.14}
+        info.update(over)
+        return info
+
+    def test_row_badge_cleared_between_refreshes(self):
+        w = self._widget()
+        w._render_row("AAA", self._info())
+        first = len(w.canvas.items)
+        # Rozet metni kısalıp rengi değişince eski rozet silinmeli
+        w._render_row("AAA", self._info(ext_change_pct=-3.61,
+                                        ext_price=4.40,
+                                        change_pct=-6.79))
+        self.assertEqual(len(w.canvas.items), first)
+        for it in w.canvas.items:
+            self.assertIn("row_AAA", it["tags"])
+
+
 class ConfigTest(unittest.TestCase):
     def _load_with(self, payload):
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False,
