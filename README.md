@@ -49,7 +49,7 @@ $env:SW_DATA_DIR = "$PWD\veri"
 - **Portföy:** toplam değer, günlük değişim ve pozisyon başına K/Z.
 - **Detay paneli:** satıra tıklayınca açılır; **1G / 1H / 1A / 1Y** aralıkları,
   mum/çizgi geçişi, fareyle zaman-fiyat-yüzde okuması, gün aralığı ve 52 hafta
-  çubuğu.
+  çubuğu. **Esc** (ya da sağ üstteki **✕**) paneli kapatır.
 - **Görünüm:** Gece / Slate / Grafit / Açık tema, %60–100 opaklık, normal/kompakt,
   her zaman üstte.
 - **Tepsi:** göster/gizle, yenile, ayarlar, semboller, otomatik başlatma, çıkış.

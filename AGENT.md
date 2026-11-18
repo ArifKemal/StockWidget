@@ -350,6 +350,16 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       üretildi: PÖ/PS rozetleri, "son kapanış" satırı ve 04:00–20:05 ET grafiği
       görünüyor. Üretici: `build/docs_shots.py` (geçici, `build/` gitignore'da;
       `_init_dpi` 2.0'a çekilip arayüz 2x yakalanıyor, açık zemine kompozit).
+26. **Esc ile detay panelini kapatma** —
+    - İstek: hisse grafiği açıkken Esc ile geri çıkılsın.
+    - `DetailPanel` iki yere `<Escape>` bağlıyor: kendi penceresi ve
+      `app.root` (ana kart odaktayken de çalışsın). İkisi de `_on_escape` →
+      `close()`; handler `"break"` döndürür.
+    - `close()` artık `app.root.unbind("<Escape>", self._esc_id)` ile root
+      bağını temizler; panel açık değilken Esc hiçbir şey yapmaz. Ayar/sembol
+      pencerelerinin kendi Esc bağları ayrı toplevel'da olduğu için etkilenmez.
+    - Doğrulama: `build/check_escape.py` (geçici) — panelde Esc, kart odaklı
+      Esc, kapalıyken Esc ve bağ temizliği: 4/4 geçti.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

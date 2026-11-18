@@ -1062,6 +1062,9 @@ class DetailPanel:
         self.canvas.bind("<B1-Motion>", self._drag)
         self.canvas.bind("<Motion>", self._on_motion)
         self.canvas.bind("<Leave>", self._on_leave)
+        # Esc ile paneli kapat: hem panelde hem ana kartta çalışsın
+        self.win.bind("<Escape>", self._on_escape)
+        self._esc_id = app.root.bind("<Escape>", self._on_escape, add="+")
         self._dx = 0
         self._dy = 0
         self._plot = None
@@ -1272,12 +1275,20 @@ class DetailPanel:
         y = max(s(4), min(gy, sh - H - s(8)))
         self.win.geometry("%dx%d+%d+%d" % (W, H, x, y))
 
+    def _on_escape(self, event=None):
+        self.close()
+        return "break"
+
     def close(self):
         if self._closed:
             return
         self._closed = True
         if self.app._detail is self:
             self.app._detail = None
+        try:
+            self.app.root.unbind("<Escape>", self._esc_id)
+        except (tk.TclError, AttributeError):
+            pass
         try:
             self.win.destroy()
         except tk.TclError:
