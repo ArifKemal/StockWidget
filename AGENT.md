@@ -6,7 +6,7 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 
 ## Dosyalar
 - `stock_widget.py` — uygulamanın tamamı (UI, veri çevrimi, tray, kısayol, portföy, ayarlar, otomatik başlatma)
-- `README.md` — kullanıcı dokümanı (indirme, kurulum, kullanım, derleme, sorun giderme)
+- `README.md` — kullanıcı dokümanı (indirme, hızlı başlangıç, özellikler, veri kaynağı, ayarlar)
 - `AGENT.md` — bu dosya: mimari kurallar + değişiklik günlüğü
 - `test_stock_widget.py` — stdlib `unittest` birim testleri (ağa çıkmaz)
 - `LICENSE` — MIT (2026 Arif Kemal)
@@ -342,6 +342,14 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       işlem günü). Grafik canlı fiyatı ayrı nokta olarak eklemez; son bar neyse
       grafik ve kart onu gösterir. Eksenin sağ etiketi "şimdi" ya da son barın
       yerel saati.
+25. **README sadeleştirme + yeni ekran görüntüleri** —
+    - README'den "Kullanım", "Geliştirme", "Sorun çıkarsa" ve "Sınırlar"
+      bölümleri kaldırıldı; komutlar AGENT.md'deki doğrulama bölümünde kalıyor.
+      Detay paneli bilgisi Özellikler'e tek madde olarak taşındı.
+    - `docs/ekran-ana.png` ve `docs/ekran-detay.png` gerçek veriyle yeniden
+      üretildi: PÖ/PS rozetleri, "son kapanış" satırı ve 04:00–20:05 ET grafiği
+      görünüyor. Üretici: `build/docs_shots.py` (geçici, `build/` gitignore'da;
+      `_init_dpi` 2.0'a çekilip arayüz 2x yakalanıyor, açık zemine kompozit).
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

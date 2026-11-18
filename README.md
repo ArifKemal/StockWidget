@@ -4,9 +4,9 @@ Windows'ta köşede duran, her zaman üstte kalan küçük bir hisse takip widge
 Python + Tkinter; veri Yahoo Finance'in ücretsiz chart endpoint'inden gelir —
 API anahtarı, hesap, abonelik gerekmez. Arayüz Türkçe.
 
-![StockWidget kartı](docs/ekran-ana.png)
+![StockWidget kartı — piyasa sonrası (PS) fiyatları](docs/ekran-ana.png)
 
-![StockWidget detay paneli](docs/ekran-detay.png)
+![Kart ve detay paneli — PS rozeti ve son kapanış satırı](docs/ekran-detay.png)
 
 ## İndir
 
@@ -37,22 +37,6 @@ $env:SW_DATA_DIR = "$PWD\veri"
 .\StockWidget-1.1.0.exe
 ```
 
-## Kullanım
-
-| Ne | Nasıl |
-|---|---|
-| Göster / gizle | **Ctrl+Alt+S**, tepsi menüsü veya karttaki **✕** (varsayılan: tepsiye gizler) |
-| Yenile | Karttaki **⟳** ya da sağ tık → **Yenile** |
-| Tamamen çık | Sağ tık → **Çıkış**, tepsi → **Çıkış** ya da Ayarlar'da "kapatınca tepsiye gizle" kapalıyken **✕** |
-| Taşı | Kartı sürükle; konum hatırlanır |
-| Sembol ekle / çıkar | Sağ tık → **Sembol ekle / çıkar…** |
-| Portföy | Sağ tık → **Portföy…** → adet + ortalama maliyet |
-| Ayarlar | Sağ tık → **Ayarlar…** (tema, opaklık, yoğunluk, yenileme, davranış) |
-| Komutlar | `--toggle` göster/gizle, `--quit` kapat, `--version`, `--paths` |
-
-Detay paneli satıra tıklayınca açılır: **1G / 1H / 1A / 1Y** aralıkları, mum/çizgi
-geçişi, fareyle zaman-fiyat-yüzde okuması.
-
 ## Özellikler
 
 - **Kart:** sembol, fiyat, günlük değişim, şirket adı ve mini grafik; sabit
@@ -63,6 +47,9 @@ geçişi, fareyle zaman-fiyat-yüzde okuması.
   gösterir, ek istek yapılmaz. 1G grafiği 04:00–20:05 ET barlarını içerir ve
   eksenin sağ ucu son verinin saatini ("şimdi" ya da saat) gösterir.
 - **Portföy:** toplam değer, günlük değişim ve pozisyon başına K/Z.
+- **Detay paneli:** satıra tıklayınca açılır; **1G / 1H / 1A / 1Y** aralıkları,
+  mum/çizgi geçişi, fareyle zaman-fiyat-yüzde okuması, gün aralığı ve 52 hafta
+  çubuğu.
 - **Görünüm:** Gece / Slate / Grafit / Açık tema, %60–100 opaklık, normal/kompakt,
   her zaman üstte.
 - **Tepsi:** göster/gizle, yenile, ayarlar, semboller, otomatik başlatma, çıkış.
@@ -112,55 +99,6 @@ Bozuk alan uygulamayı kilitlemez, varsayılana döner.
 | `extended_hours` | `true` ise piyasa öncesi/sonrası (**PÖ**/**PS**) verisi gösterilir. |
 | `close_to_tray` | `true` ise **✕** tepsiye gizler; `false` ise çıkar. |
 | `positions` | `{ "AAPL": { "qty": 12, "avg": 185.4 } }` |
-
-## Geliştirme
-
-```powershell
-git clone https://github.com/ArifKemal/StockWidget.git
-cd StockWidget
-pip install -r requirements.txt
-pythonw stock_widget.py        # konsolsuz çalıştırma
-
-python -m unittest test_stock_widget.py    # 23 test, ağa çıkmaz
-python tools/bump_version.py 1.1.0
-```
-
-Paketleme:
-
-```powershell
-python -m PyInstaller --noconfirm --clean --distpath dist-onefile StockWidget-onefile.spec
-python -m PyInstaller --noconfirm --clean StockWidget.spec        # ZIP yedeği
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer.iss   # setup.exe
-```
-
-`v*` etiketi atınca CI test eder ve üç asseti Release'e yükler; sürüm numarası
-etiketten alınır (`git tag v1.1.0 && git push --tags`).
-
-## Sorun çıkarsa
-
-- **Widget görünmüyor:** Ctrl+Alt+S ya da tepsi → Göster. ✕ sadece gizler.
-- **Veri gelmiyor:** internet/Yahoo erişimini kontrol edin. 429 ise 5 dk bekleyin.
-- **Tepsi ikonu yok / köşeler keskin:** `pystray` ve `pillow` eksik olabilir
-  (kaynak modunda); uygulama yine çalışır.
-- **Tepsi ikonu görünmüyor (Windows 11):** Simge gizli simgeler alanındadır —
-  görev çubuğundaki **^** okuna bakın, oradaki simgeyi sağ tık → sabitleyin ya
-  da **Ayarlar → Kişiselleştirme → Görev çubuğu → Diğer sistem tepsisindeki
-  simgeler** listesinden StockWidget'ı açın.
-- **Simge/Ayarlar kaydedilmiyor:** Malwarebytes gibi bir güvenlik yazılımı
-  imzasız exe'yi engelliyor olabilir; StockWidget.exe için istisna ekleyin.
-- **Kısayol çalışmıyor:** Ctrl+Alt+S başka uygulamada tanımlı olabilir.
-- **Kurulum "Error 5" diyor:** makine kısıtlı olabilir (Başlat menüsü/kayıt
-  defteri yazımı engelli). Kurulum bunu söyler; portatif sürümü kullanın.
-- **Kurulum "%TEMP% ... Access is denied" diyor:** `TEMP`/`TMP` yazılamıyor.
-  `set TEMP=C:\Temp&& set TMP=C:\Temp` sonrası kurulumu tekrar çalıştırın.
-- **Ayrıntı:** `%APPDATA%\StockWidget\sw.log`.
-
-## Sınırlar
-
-- Piyasa saati ve tatiller ABD (NYSE) içindir; pre/post market yoktur.
-- Portföy K/Z son fiyata göredir; komisyon, kur ve vergi hesaba katılmaz.
-- Windows 10/11 x64; macOS/Linux desteklenmez.
-- Yahoo endpoint'i resmî değildir; ileride veri kaynağı değişebilir.
 
 ## Lisans
 
