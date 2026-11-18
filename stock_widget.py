@@ -342,36 +342,26 @@ def market_active():
     return market_phase() is not None
 
 
-def session_from_meta(meta, now_ts):
-    """Yahoo meta'sındaki seans pencerelerinden aktif seansı bulur."""
-    periods = meta.get("currentTradingPeriod") or {}
-    for name in ("pre", "post"):
-        part = periods.get(name) or {}
-        start, end = part.get("start"), part.get("end")
-        if start and end and start <= now_ts <= end:
-            return name
-    return None
-
-
 # Seans dışı etiketleri: piyasa öncesi / piyasa sonrası
 SESSION_LABEL = {"pre": "PÖ", "post": "PS"}
 
 
-def extended_session(meta, now_ts, phase=None):
-    """Seans dışı oturumu belirler.
+def bar_session(ts):
+    """Bir 5 dk barının ET saatine göre seansı: 'pre', 'post' ya da None.
 
-    Önce Yahoo'nun kendi pencereleri (exchange saatleri) kullanılır. Meta'da
-    hiç pencere yoksa saat bazlı `phase` tahminine düşülür; böylece bazı
-    sembollerde `currentTradingPeriod` eksik olduğunda da PÖ/PS görünür.
+    Tatil/hafta sonu ayrımı yapılmaz: amaç barın hangi seansa ait olduğunu
+    bilmek. Hafta sonu son bar Cuma 19:55 ise veri hâlâ seans sonrasıdır.
     """
-    session = session_from_meta(meta, now_ts)
-    if session:
-        return session
-    periods = meta.get("currentTradingPeriod") or {}
-    has_windows = any((periods.get(key) or {}).get("start")
-                      for key in ("pre", "post"))
-    if not has_windows and phase in SESSION_LABEL:
-        return phase
+    if ts is None:
+        return None
+    utc = datetime.datetime.fromtimestamp(ts, datetime.timezone.utc)
+    utc = utc.replace(tzinfo=None)
+    et = utc + datetime.timedelta(hours=_et_offset_hours(utc.date()))
+    t = et.hour * 60 + et.minute
+    if 4 * 60 <= t < 9 * 60 + 30:
+        return "pre"
+    if 16 * 60 <= t < 20 * 60 + 5:
+        return "post"
     return None
 
 
@@ -518,23 +508,17 @@ def fetch_quote(symbol, include_prepost=True):
         lo_ = min(o, c, lo_ if lo_ is not None else o)
         rows.append((stamps[i], c, o, h, lo_, _at("volume", i)))
 
-    # Seans dışı (piyasa öncesi/sonrası) fiyat: Yahoo aynı yanıtta veriyor.
+    # Seans dışı (piyasa öncesi/sonrası) fiyat: grafiği besleyen son bar.
+    # Böylece kart ve detaydaki fiyat, grafiğin bittiği noktayla birebir aynı
+    # olur; piyasa kapandıktan sonra da "kapanışta takılı" görünmez.
     ext_session = None
     ext_price = ext_pct = ext_abs = None
-    if include_prepost:
-        now_ts = time.time()
-        ext_session = extended_session(meta, now_ts, market_phase())
-        price_full = meta.get("fulldayPrice")
-        pct_full = meta.get("fulldayChangePercent")
-        if ext_session and price_full is not None and pct_full is not None:
-            ext_price = float(price_full)
-            ext_pct = float(pct_full)
-            try:
-                ext_abs = float(meta.get("fulldayChange"))
-            except (TypeError, ValueError):
-                ext_abs = ext_price - float(price)
-            # Grafik son 5 dk barına değil, canlı seans dışı fiyata kadar uzasın
-            rows.append((now_ts, ext_price, ext_price, ext_price, ext_price, 0))
+    if include_prepost and rows:
+        ext_session = bar_session(rows[-1][0])
+        if ext_session:
+            ext_price = float(rows[-1][1])
+            ext_pct = (ext_price / float(prev) - 1.0) * 100.0
+            ext_abs = ext_price - float(prev)
     if len(rows) > 60:
         step = (len(rows) - 1) / 59.0
         idx = list(dict.fromkeys(int(round(i * step)) for i in range(60)))
@@ -2044,6 +2028,13 @@ class StockWidget:
     def _update_status(self):
         c = self.canvas
         phase = market_phase()
+        if phase is None:
+            # Seans kapalıyken de son veri seans dışından geliyorsa PÖ/PS yaz
+            for sym in self.cfg.get("symbols") or []:
+                info = self.last.get(sym) or {}
+                if info.get("ext_session") in SESSION_LABEL:
+                    phase = info["ext_session"]
+                    break
         if self.offline:
             dot = AMBER
         elif phase == "regular":

@@ -315,14 +315,16 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       engelleyebilir (config/log kaydedilmez); istisna eklenmeli. Kaynak modda
       sorun yok. Windows 11 yeni simgeleri **^** gizli alanına koyabilir.
 24. **Piyasa öncesi/sonrası (PÖ/PS) verisi** —
-    - URL'e `includePrePost=true` eklendi (`quote_url`). Ek istek yok: Yahoo
-      aynı yanıtta `fulldayPrice`, `fulldayChange`, `fulldayChangePercent`
-      döndürüyor. `fulldayChangePercent` **normal seans fiyatına göre** değişim.
-    - Seans tespiti: `session_from_meta()` `currentTradingPeriod.pre/post`
-      pencerelerini epoch ile karşılaştırır; pencere hiç yoksa
-      `extended_session()` saat bazlı `market_phase()` tahminine düşer.
-      `market_phase`: ET 04:00–09:30 `pre`, 09:30–16:00 `regular`,
-      16:00–20:00 `post`; tatiller/hafta sonu kapalı.
+    - URL'e `includePrePost=true` eklendi (`quote_url`). Ek istek yok.
+    - Seans dışı fiyat artık `fullday*` alanlarından değil, **grafiği besleyen
+      son 5 dk barından** okunur (`bar_session(ts)` barın ET saatine bakar:
+      04:00–09:30 `pre`, 16:00–20:05 `post`). Böylece kart/detay fiyatı
+      grafiğin bittiği noktayla birebir aynı olur; `fulldayPrice` seans sonrası
+      işlemleri tam yansıtmadığı için kart kapanış fiyatında takılı kalıyordu.
+      Değişim `fiyat / prev_close - 1` ile hesaplanır (grafik hover'ı da aynı).
+    - Seans etiketi: `_update_status` önce `market_phase()` bakar; seans
+      kapalıyken verideki `ext_session` varsa onu yazar (hafta sonu/tatilde de
+      PS görünür, çünkü gösterilen fiyat seans sonrası veridir).
     - Görünüm: satır fiyatı ve rozeti seans dışı değeri gösterir
       (`PÖ ▼ -0,64%` / `PS ▲ +1,2%`); saat yanındaki nokta normal seansta
       yeşil, seans dışında amber, kapalıyken soluk; noktanın solunda PÖ/PS
@@ -332,13 +334,14 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       Kapatınca `fetch_quote(sym, False)` çağrılır ve rozet gizlenir.
     - `pause_when_closed` artık `market_active()` kullanır: seans dışı açıkken
       yenileme durmaz.
-    - Test: `market_phase`, `market_open/active`, `session_from_meta`,
-      `extended_session`, `quote_url`, `SESSION_LABEL` birim testleri var.
+    - Test: `market_phase`, `market_open/active`, `bar_session`,
+      `fetch_quote` son bar -> ext eşlemesi, `quote_url`, `SESSION_LABEL`.
     - 1G grafik: `range=1d` piyasa öncesi saatlerde önceki seansa düşebildiği
       için URL artık açık `period1`/`period2` kullanıyor
       (`session_epoch_range`: işlem günü 04:00–20:05 ET; 04:00 öncesi önceki
-      işlem günü). Seans dışı fiyat grafiğin sonuna canlı nokta olarak eklenir.
-      Eksenin sağ etiketi "şimdi" ya da son barın yerel saati.
+      işlem günü). Grafik canlı fiyatı ayrı nokta olarak eklemez; son bar neyse
+      grafik ve kart onu gösterir. Eksenin sağ etiketi "şimdi" ya da son barın
+      yerel saati.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

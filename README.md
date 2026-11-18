@@ -58,10 +58,10 @@ geçişi, fareyle zaman-fiyat-yüzde okuması.
 - **Kart:** sembol, fiyat, günlük değişim, şirket adı ve mini grafik; sabit
   genişlikli rakamlar, "son güncelleme" zamanı, piyasa durumu noktası.
 - **Seans dışı:** piyasa öncesi/sonrası fiyat ve değişim, satırda ve detay
-  panelinde **PÖ** / **PS** rozetiyle gösterilir; etiket ve değerler Yahoo'nun
-  seans pencerelerinden alınır, ek istek yapılmaz. 1G grafiği 04:00–20:00 ET
-  barlarını içerir, canlı seans dışı fiyatla biter; eksenin sağ ucu son veri
-  saatini ("şimdi" ya da saat) gösterir.
+  panelinde **PÖ** / **PS** rozetiyle gösterilir. Değer, grafiği besleyen son
+  5 dk barından okunur; bu yüzden kart, detay ve grafik her zaman aynı fiyatı
+  gösterir, ek istek yapılmaz. 1G grafiği 04:00–20:05 ET barlarını içerir ve
+  eksenin sağ ucu son verinin saatini ("şimdi" ya da saat) gösterir.
 - **Portföy:** toplam değer, günlük değişim ve pozisyon başına K/Z.
 - **Görünüm:** Gece / Slate / Grafit / Açık tema, %60–100 opaklık, normal/kompakt,
   her zaman üstte.
@@ -77,10 +77,10 @@ geçişi, fareyle zaman-fiyat-yüzde okuması.
 olduğu için istek sayısı bilinçli olarak düşük tutulur:
 
 - Fiyat + gün istatistikleri + 1G grafiği: **tek istek**.
-- Seans dışı fiyatlar (`includePrePost=true`): aynı yanıttaki `fullday*`
-  alanlarından okunur; ayrı istek yok. 1G penceresi `range=1d` yerine açık
-  `period1`/`period2` ile istenir — piyasa öncesi saatlerde Yahoo'nun önceki
-  seansa düşmesini engeller.
+- Seans dışı fiyat (`includePrePost=true`): aynı yanıttaki son 5 dk barından,
+  `prev_close`e göre hesaplanır; ayrı istek yok. 1G penceresi `range=1d` yerine
+  açık `period1`/`period2` ile istenir — piyasa öncesi saatlerde Yahoo'nun
+  önceki seansa düşmesini engeller.
 - 1H / 1A / 1Y: sekmeye ilk tıklamada birer istek, sonra önbellekten.
 - Semboller arasında 0,4 s bekleme; varsayılan aralıklarda 5 sembol ≈ günde
   ~300 istek.

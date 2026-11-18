@@ -122,18 +122,26 @@ class HelpersTest(unittest.TestCase):
         finally:
             sw.market_phase = saved
 
-    def test_session_from_meta(self):
-        meta = {"currentTradingPeriod": {
-            "pre": {"start": 100, "end": 200},
-            "regular": {"start": 200, "end": 300},
-            "post": {"start": 300, "end": 400},
-        }}
-        self.assertEqual(sw.session_from_meta(meta, 150), "pre")
-        self.assertEqual(sw.session_from_meta(meta, 350), "post")
-        self.assertIsNone(sw.session_from_meta(meta, 250))
-        self.assertIsNone(sw.session_from_meta({}, 250))
-        self.assertIsNone(sw.session_from_meta({"currentTradingPeriod": {
-            "pre": {"start": None, "end": None}}}, 150))
+    def test_bar_session(self):
+        import calendar
+
+        def et_epoch(day, hour, minute=0):
+            # Kasım: ET = UTC-5; bar_session epoch'u ET'ye çevirir
+            utc = datetime.datetime(2026, 11, day, hour, minute)
+            utc += datetime.timedelta(hours=5)
+            return calendar.timegm(utc.timetuple())
+
+        self.assertEqual(sw.bar_session(et_epoch(17, 4, 0)), "pre")
+        self.assertEqual(sw.bar_session(et_epoch(17, 9, 25)), "pre")
+        self.assertIsNone(sw.bar_session(et_epoch(17, 9, 30)))
+        self.assertIsNone(sw.bar_session(et_epoch(17, 15, 55)))
+        self.assertEqual(sw.bar_session(et_epoch(17, 16, 0)), "post")
+        self.assertEqual(sw.bar_session(et_epoch(17, 19, 55)), "post")
+        self.assertIsNone(sw.bar_session(et_epoch(18, 0, 5)))
+        self.assertIsNone(sw.bar_session(et_epoch(17, 20, 10)))
+        self.assertIsNone(sw.bar_session(None))
+        # Hafta sonu: son bar Cuma 19:55 -> veri hâlâ seans sonrası
+        self.assertEqual(sw.bar_session(et_epoch(21, 19, 55)), "post")
 
     def test_quote_url(self):
         url = sw.quote_url("AAPL")
@@ -177,17 +185,64 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(sw.SESSION_LABEL["pre"], "PÖ")
         self.assertEqual(sw.SESSION_LABEL["post"], "PS")
 
-    def test_extended_session_fallback(self):
-        # Meta'da pencere yoksa saat bazlı tahmin kullanılır
-        self.assertEqual(sw.extended_session({}, 100, "pre"), "pre")
-        self.assertEqual(sw.extended_session({}, 100, "post"), "post")
-        self.assertIsNone(sw.extended_session({}, 100, "regular"))
-        self.assertIsNone(sw.extended_session({}, 100))
-        # Pencere varsa ama şu anı kapsamıyorsa tahmine düşülmez
-        meta = {"currentTradingPeriod": {
-            "pre": {"start": 1000, "end": 2000},
-            "post": {"start": 3000, "end": 4000}}}
-        self.assertIsNone(sw.extended_session(meta, 500, "pre"))
+    def test_ext_from_last_bar(self):
+        import calendar
+
+        def et_epoch(day, hour, minute=0):
+            utc = datetime.datetime(2026, 11, day, hour, minute)
+            utc += datetime.timedelta(hours=5)
+            return calendar.timegm(utc.timetuple())
+
+        def payload(with_post):
+            stamps = [et_epoch(17, 15, 55)]
+            closes = [4.60]
+            if with_post:
+                stamps.append(et_epoch(17, 19, 55))
+                closes.append(5.10)
+            return {"chart": {"result": [{
+                "meta": {"regularMarketPrice": 4.68, "previousClose": 4.76,
+                         "chartPreviousClose": 4.76, "currency": "USD",
+                         "shortName": "TEST"},
+                "timestamp": stamps,
+                "indicators": {"quote": [{
+                    "close": closes, "open": closes, "high": closes,
+                    "low": closes, "volume": [0] * len(closes)}]},
+            }]}}
+
+        class _Resp:
+            def __init__(self, body):
+                self.body = body
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return self.body
+
+        saved = sw.requests.get
+
+        def fake_get(url, **kwargs):
+            return _Resp(payload(fake_get.with_post))
+
+        fake_get.with_post = True
+        try:
+            sw.requests.get = fake_get
+            info = sw.fetch_quote("TEST", True)
+            # Grafiğin son barı (=5.10) kart fiyatı olur, kapanış 4.68 değil
+            self.assertEqual(info["spark"][-1], 5.10)
+            self.assertEqual(info["ext_session"], "post")
+            self.assertAlmostEqual(info["ext_price"], 5.10)
+            self.assertAlmostEqual(info["ext_change_pct"],
+                                   (5.10 / 4.76 - 1.0) * 100.0)
+
+            fake_get.with_post = False
+            info = sw.fetch_quote("TEST", True)
+            self.assertEqual(info["spark"][-1], 4.60)
+            self.assertIsNone(info["ext_session"])
+            self.assertIsNone(info["ext_price"])
+        finally:
+            sw.requests.get = saved
+
 
 
 class ConfigTest(unittest.TestCase):
