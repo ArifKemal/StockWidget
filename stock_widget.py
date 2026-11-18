@@ -792,6 +792,81 @@ def _hex_rgb(color):
         return (128, 128, 128)
 
 
+# ---- kısa geçiş animasyonları ----
+ANIM_MS = 130            # panel açılışı / sekme kayması
+ANIM_CLOSE_MS = 90       # panel kapanışı
+ANIM_HOVER_MS = 90       # satır vurgusu
+ANIM_FRAME_MS = 16       # ~60 fps
+ANIM_SLIDE = 10          # açılışta yukarı kayma (ölçeklenmemiş piksel)
+
+
+def anim_enabled():
+    """Windows'ta 'animasyonları göster' kapalıysa False döner."""
+    try:
+        value = ctypes.c_int(1)
+        ok = ctypes.windll.user32.SystemParametersInfoW(
+            0x1042, 0, ctypes.byref(value), 0)   # SPI_GETCLIENTAREAANIMATION
+        return bool(ok and value.value)
+    except Exception:
+        return True
+
+
+def ease_out(t):
+    """0→1 arası hızlı başlayıp yavaşlayan yumuşatma."""
+    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+    return 1.0 - (1.0 - t) ** 3
+
+
+def blend_color(src, dst, t):
+    """İki renk arasında `t` (0→1) oranında geçiş yapar."""
+    a, b = _hex_rgb(src), _hex_rgb(dst)
+    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+    return "#%02x%02x%02x" % tuple(
+        int(round(a[i] + (b[i] - a[i]) * t)) for i in range(3))
+
+
+def run_anim(widget, ms, apply_fn, done=None, alive=None):
+    """`apply_fn(p)` çağrısını 0→1 arası karelerle yapar (p yumuşatılmış).
+
+    Widget yok edilirse ya da `alive()` False dönerse sessizce durur.
+    Animasyon kapalıysa tek karede son duruma atlar.
+    """
+    if ms <= 0 or not anim_enabled():
+        try:
+            apply_fn(1.0)
+            if done:
+                done()
+        except tk.TclError:
+            pass
+        return
+
+    frames = max(4, int(round(ms / float(ANIM_FRAME_MS))))
+    state = {"n": 0}
+
+    def tick():
+        if alive is not None and not alive():
+            return
+        state["n"] += 1
+        p = ease_out(min(1.0, state["n"] / float(frames)))
+        try:
+            apply_fn(p)
+            if state["n"] < frames:
+                widget.after(ANIM_FRAME_MS, tick)
+            elif done:
+                done()
+        except tk.TclError:
+            return
+
+    tick()
+
+
+def fade(win, start, end, ms, done=None, alive=None):
+    """Pencere opaklığını `start`tan `end`e kaydırır."""
+    run_anim(win, ms,
+             lambda p: win.attributes("-alpha", start + (end - start) * p),
+             done=done, alive=alive)
+
+
 def pick_mono(root):
     """Fiyatlar için sabit genişlikli (tabular) bir yazı tipi seçer."""
     try:
@@ -1069,16 +1144,50 @@ class DetailPanel:
         self._dy = 0
         self._plot = None
         self._hover_idx = None
+        self._tab_geo = []
+        self._tab_y = (0, 0)
+        self._target_alpha = getattr(app, "alpha", 0.97)
+        self._base_xy = None
+        self._closing = False
 
         self.reposition()
         self.render()
         app.root.after(150, self._poll_results)
+        self._animate_open()
+
+    # ---------- animations ----------
+
+    def _animate_open(self):
+        """Panel kısa bir kayma + solma ile açılır."""
+        if not anim_enabled() or self._base_xy is None:
+            return
+        bx, by = self._base_xy
+        slide = self.s(ANIM_SLIDE)
+        try:
+            self.win.attributes("-alpha", 0.0)
+        except tk.TclError:
+            return
+
+        def apply(p):
+            self.win.attributes("-alpha", self._target_alpha * p)
+            self.win.geometry("+%d+%d" % (bx, int(round(by + slide * (1 - p)))))
+
+        def finish():
+            try:
+                self.win.geometry("+%d+%d" % (bx, by))
+                self.win.attributes("-alpha", self._target_alpha)
+            except tk.TclError:
+                pass
+
+        run_anim(self.win, ANIM_MS, apply, done=finish,
+                 alive=lambda: not self._closed)
 
     # ---------- timeframe ----------
 
     def set_tf(self, tf):
         if self._closed:
             return
+        old = self.tf
         if tf == self.tf:
             # Aynı sekme: yüklü ya da yükleniyorsa yapacak bir şey yok;
             # hata aldıysa aşağıda yeniden dener.
@@ -1091,6 +1200,29 @@ class DetailPanel:
             threading.Thread(target=self._fetch_series, args=(tf,),
                              daemon=True).start()
         self.render()
+        self._animate_pill(old)
+
+    def _animate_pill(self, old_tf):
+        """Etkin sekme vurgusu eski sekmeden yenisine kayar."""
+        if old_tf == self.tf or not anim_enabled() or not self._tab_geo:
+            return
+        try:
+            old_i = TF_TABS.index(old_tf)
+            new_i = TF_TABS.index(self.tf)
+        except ValueError:
+            return
+        pill = self.canvas.find_withtag("tabpill")
+        if not pill:
+            return
+        ox1, ox2 = self._tab_geo[old_i]
+        nx1, nx2 = self._tab_geo[new_i]
+        y1, y2 = self._tab_y
+
+        def apply(p):
+            self.canvas.coords(pill[0], ox1 + (nx1 - ox1) * p, y1,
+                               ox2 + (nx2 - ox2) * p, y2)
+
+        run_anim(self.win, ANIM_MS, apply, alive=lambda: not self._closed)
 
     def _fetch_series(self, tf):
         try:
@@ -1273,13 +1405,20 @@ class DetailPanel:
             x = gx - W - s(8)
         x = max(s(4), x)
         y = max(s(4), min(gy, sh - H - s(8)))
+        self._base_xy = (x, y)
         self.win.geometry("%dx%d+%d+%d" % (W, H, x, y))
 
     def _on_escape(self, event=None):
         self.close()
         return "break"
 
-    def close(self):
+    def _destroy(self):
+        try:
+            self.win.destroy()
+        except tk.TclError:
+            pass
+
+    def close(self, animate=True):
         if self._closed:
             return
         self._closed = True
@@ -1289,10 +1428,21 @@ class DetailPanel:
             self.app.root.unbind("<Escape>", self._esc_id)
         except (tk.TclError, AttributeError):
             pass
-        try:
-            self.win.destroy()
-        except tk.TclError:
-            pass
+        if animate and anim_enabled() and self._base_xy is not None:
+            bx, by = self._base_xy
+            slide = self.s(ANIM_SLIDE) // 2
+            start = self._target_alpha
+
+            def apply(p):
+                self.win.attributes("-alpha", start * (1.0 - p))
+                self.win.geometry("+%d+%d"
+                                 % (bx, int(round(by - slide * p))))
+
+            # `_closed` True olduğu için alive kontrolü ayrı: pencere yaşıyor mu?
+            run_anim(self.win, ANIM_CLOSE_MS, apply, done=self._destroy,
+                     alive=lambda: bool(self.win.winfo_exists()))
+        else:
+            self._destroy()
 
     # ---------- drawing ----------
 
@@ -1312,13 +1462,27 @@ class DetailPanel:
     def _draw_tabs(self, pad, y1, y2):
         c, s = self.canvas, self.s
         w, gap = s(34), s(5)
+        geo = []
         for i, tf in enumerate(TF_TABS):
             x1 = pad + i * (w + gap)
             x2 = x1 + w
+            geo.append((x1, x2))
+            c.create_rectangle(x1, y1, x2, y2, fill=CARD, outline="",
+                               tags=("tfb_" + tf,))
+        self._tab_geo = geo
+        self._tab_y = (y1, y2)
+        # Etkin sekme vurgusu ayrı bir katman: sekme değişince kaydırılabilir
+        try:
+            idx = TF_TABS.index(self.tf)
+        except ValueError:
+            idx = 0
+        if geo:
+            ax1, ax2 = geo[idx]
+            c.create_rectangle(ax1, y1, ax2, y2, fill=TRACK, outline="",
+                               tags=("tabpill",))
+        for i, tf in enumerate(TF_TABS):
+            x1, x2 = geo[i]
             active = tf == self.tf
-            c.create_rectangle(x1, y1, x2, y2, fill=TRACK if active else CARD,
-                               outline="",
-                               tags=(("tfb_" + tf,) if active else ("tfb_" + tf,)))
             c.create_text((x1 + x2) / 2.0, (y1 + y2) / 2.0 + s(1),
                           text=TF_LABEL[tf], fill=ACCENT if active else MUTED,
                           font=("Segoe UI", 8, "bold" if active else "normal"),
@@ -2129,12 +2293,31 @@ class StockWidget:
         if idx == self._hover_row:
             return
         self._hover_row = idx
+        self._hover_gen = getattr(self, "_hover_gen", 0) + 1
+        gen = self._hover_gen
         hover_ids = self.canvas.find_withtag("hover")
         for i, hid in enumerate(hover_ids):
-            self.canvas.itemconfig(hid, fill=HOVER if i == idx else "")
+            if i == idx:
+                self._fade_item(hid, HOVER, gen)
+            else:
+                self.canvas.itemconfig(hid, fill="")
+
+    def _fade_item(self, item_id, target, gen):
+        """Satır vurgusunu kısa bir renk geçişiyle açar."""
+        if not anim_enabled():
+            self.canvas.itemconfig(item_id, fill=target)
+            return
+
+        def apply(p):
+            self.canvas.itemconfig(item_id,
+                                   fill=blend_color(CARD, target, p))
+
+        run_anim(self.canvas, ANIM_HOVER_MS, apply,
+                 alive=lambda: gen == self._hover_gen)
 
     def _on_leave(self, event):
         self._hover_row = None
+        self._hover_gen = getattr(self, "_hover_gen", 0) + 1
         self.canvas.config(cursor="")
         for hid in self.canvas.find_withtag("hover"):
             self.canvas.itemconfig(hid, fill="")
@@ -2190,12 +2373,13 @@ class StockWidget:
             self.close_detail()
             return
         if self._detail is not None:
-            self._detail.close()
+            # Yerine yeni panel açılıyor: eskiyi animasyonsuz kapat
+            self._detail.close(animate=False)
         self._detail = DetailPanel(self, sym)
 
-    def close_detail(self):
+    def close_detail(self, animate=True):
         if self._detail is not None:
-            self._detail.close()
+            self._detail.close(animate=animate)
 
     def apply_startup(self, value):
         set_startup(bool(value))
@@ -3445,18 +3629,56 @@ class StockWidget:
         if self.root.winfo_viewable():
             self.hide_window()
         else:
-            self.root.deiconify()
-            self.root.lift()
+            self.show_window()
+
+    def show_window(self):
+        """Kartı kısa bir solmayla göster."""
+        self._fade_gen = getattr(self, "_fade_gen", 0) + 1
+        gen = self._fade_gen
+        self.root.deiconify()
+        self.root.lift()
+        root = self.root
+        if not anim_enabled():
+            root.attributes("-alpha", self.alpha)
+            return
+        root.attributes("-alpha", 0.0)
+        fade(root, 0.0, self.alpha, ANIM_MS,
+             done=lambda: self._end_fade(gen),
+             alive=lambda: gen == self._fade_gen)
+
+    def _end_fade(self, gen):
+        if gen != getattr(self, "_fade_gen", 0):
+            return
+        try:
+            self.root.attributes("-alpha", self.alpha)
+        except tk.TclError:
+            pass
 
     def hide_window(self):
-        self.close_detail()
+        self.close_detail(animate=False)
         dlg = self._settings_dlg
         if dlg is not None:
             try:
                 dlg.destroy()
             except tk.TclError:
                 pass
-        self.root.withdraw()
+        if not anim_enabled() or not self.root.winfo_viewable():
+            self.root.withdraw()
+            return
+        self._fade_gen = getattr(self, "_fade_gen", 0) + 1
+        gen = self._fade_gen
+        fade(self.root, self.alpha, 0.0, ANIM_CLOSE_MS,
+             done=lambda: self._finish_hide(gen),
+             alive=lambda: gen == self._fade_gen)
+
+    def _finish_hide(self, gen):
+        if gen != getattr(self, "_fade_gen", 0):
+            return
+        try:
+            self.root.attributes("-alpha", self.alpha)
+            self.root.withdraw()
+        except tk.TclError:
+            pass
 
     def close_window(self):
         """✕ / Alt+F4: tercihe göre tepsiye gizle ya da tamamen çık."""
@@ -3473,7 +3695,7 @@ class StockWidget:
         self.cfg["x"] = self.root.winfo_x()
         self.cfg["y"] = self.root.winfo_y()
         save_config(self.cfg)
-        self.close_detail()
+        self.close_detail(animate=False)
         self.stop_flag.set()
         self.wake.set()
         if self.tray_icon:

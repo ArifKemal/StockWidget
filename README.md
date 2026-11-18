@@ -52,6 +52,9 @@ $env:SW_DATA_DIR = "$PWD\veri"
   çubuğu. **Esc** (ya da sağ üstteki **✕**) paneli kapatır.
 - **Görünüm:** Gece / Slate / Grafit / Açık tema, %60–100 opaklık, normal/kompakt,
   her zaman üstte.
+- **Hareket:** panel açılışı/kapanışı, sekme vurgusu, satır vurgusu ve kart
+  göster/gizle kısa (90–130 ms) yumuşak geçişlerle yapılır; Windows'ta
+  "animasyonları göster" kapalıysa hareketler otomatik devre dışı kalır.
 - **Tepsi:** göster/gizle, yenile, ayarlar, semboller, otomatik başlatma, çıkış.
 - **Dayanıklılık:** varsayılan açıkken 15 dk, kapalıyken 60 dk yenileme (Ayarlar'dan
   değiştirilebilir); hata sonrası 90 s, HTTP 429'da 5 dk bekleme; NYSE tatilleri

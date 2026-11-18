@@ -60,6 +60,46 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(sw._hex_rgb("#fff"), (255, 255, 255))
         self.assertEqual(sw._hex_rgb("bozuk"), (128, 128, 128))
 
+    def test_ease_out(self):
+        self.assertEqual(sw.ease_out(0.0), 0.0)
+        self.assertEqual(sw.ease_out(1.0), 1.0)
+        self.assertAlmostEqual(sw.ease_out(0.5), 0.875)
+        # aralık dışı değerler kırpılır, eğri tek yönlü artar
+        self.assertEqual(sw.ease_out(-3), 0.0)
+        self.assertEqual(sw.ease_out(9), 1.0)
+        dizi = [sw.ease_out(i / 10.0) for i in range(11)]
+        self.assertEqual(dizi, sorted(dizi))
+
+    def test_blend_color(self):
+        self.assertEqual(sw.blend_color("#000000", "#ffffff", 0.0),
+                         "#000000")
+        self.assertEqual(sw.blend_color("#000000", "#ffffff", 1.0),
+                         "#ffffff")
+        self.assertEqual(sw.blend_color("#000000", "#ffffff", 0.5),
+                         "#808080")
+        # kırpma
+        self.assertEqual(sw.blend_color("#102030", "#102030", 5.0),
+                         "#102030")
+
+    def test_anim_constants(self):
+        self.assertGreater(sw.ANIM_MS, 0)
+        self.assertGreater(sw.ANIM_CLOSE_MS, 0)
+        self.assertGreater(sw.ANIM_HOVER_MS, 0)
+        self.assertLessEqual(sw.ANIM_MS, 250, "geçişler kısa kalmalı")
+        self.assertIsInstance(sw.anim_enabled(), bool)
+
+    def test_run_anim_disabled(self):
+        saved = sw.anim_enabled
+        sw.anim_enabled = lambda: False
+        try:
+            seen = []
+            sw.run_anim(None, 120, seen.append,
+                        done=lambda: seen.append("bitti"))
+            # animasyon kapalı: tek karede son duruma atlar
+            self.assertEqual(seen, [1.0, "bitti"])
+        finally:
+            sw.anim_enabled = saved
+
     def test_ellipsize(self):
         fn = _StubFont()
         self.assertEqual(sw.StockWidget._ellipsize(None, "abcdef", fn, 100),

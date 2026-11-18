@@ -360,6 +360,25 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       pencerelerinin kendi Esc bağları ayrı toplevel'da olduğu için etkilenmez.
     - Doğrulama: `build/check_escape.py` (geçici) — panelde Esc, kart odaklı
       Esc, kapalıyken Esc ve bağ temizliği: 4/4 geçti.
+27. **Kısa geçiş animasyonları** —
+    - İstek: geçişlere hızlı motion'lar.
+    - Yeni yardımcılar (`stock_widget.py`): `anim_enabled()` (Windows
+      `SPI_GETCLIENTAREAANIMATION`; sistemde animasyon kapalıysa hepsi atlanır),
+      `ease_out()` (cubic ease-out), `blend_color()`, `run_anim()` (16 ms
+      kareler, `alive()` ile iptal) ve `fade()`.
+    - Detay paneli: açılışta 130 ms solma + 10 px yukarı kayma; kapanışta 90 ms
+      solma + yarım kayma, sonunda pencere yok edilir (`close(animate=...)`;
+      panel değiştirilirken animasyonsuz).
+    - Sekmeler: etkin sekme vurgusu artık ayrı `tabpill` katmanı; 1G→1H gibi
+      geçişte vurgu 130 ms'de eski sekmeden yenisine kayar.
+    - Kart: göster/gizle 130/90 ms solma; `_fade_gen` sayacı ile hızlı
+      toggle'larda eski animasyon iptal edilir.
+    - Satır vurgusu: 90 ms renk geçişi; `_hover_gen` sayacı hızlı fare
+      hareketinde eski animasyonu iptal eder.
+    - Ölçüm (`build/check_motion.py`, geçici): panel açılış alpha 0.32→0.97
+      (~150 ms, y 247→240), kapanış alpha→0 (~125 ms'de yok), sekme vurgusu
+      x 28.9→55.0 (~160 ms), kart gizle alpha→0 + withdraw (~116 ms), kart
+      göster 0.32→0.97 (~150 ms). Testler: 27/27.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat
