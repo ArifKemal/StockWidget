@@ -6,6 +6,7 @@ import queue
 import ctypes
 import ctypes.wintypes
 import datetime
+import calendar
 import logging
 import shutil
 import threading
@@ -93,12 +94,19 @@ def migrate_legacy_config():
         pass
 
 
-API_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{s}?interval=5m&range=1d"
+API_URL = ("https://query1.finance.yahoo.com/v8/finance/chart/"
+           "{s}?interval=5m")
 
 
-def quote_url(symbol, include_prepost=True):
-    """Yahoo grafik URL'i; seans dışı barlar istenirse eklenir."""
+def quote_url(symbol, include_prepost=True, et=None):
+    """Yahoo grafik URL'i: son/aktif işlem gününün 04:00–20:00 ET penceresi.
+
+    `range=1d` piyasa öncesi saatlerde önceki seansa düşebiliyor; bu yüzden
+    pencere açıkça `period1`/`period2` ile verilir. Ek istek yapılmaz.
+    """
     url = API_URL.format(s=symbol)
+    start, end = session_epoch_range(et)
+    url += "&period1=%d&period2=%d" % (start, end)
     if include_prepost:
         url += "&includePrePost=true"
     return url
@@ -367,6 +375,45 @@ def extended_session(meta, now_ts, phase=None):
     return None
 
 
+def _et_offset_hours(day):
+    """Verilen gün için ET'nin UTC'ye göre farkı (-4 yaz, -5 kış)."""
+    year = day.year
+    mar1 = datetime.datetime(year, 3, 1)
+    first_sun_mar = 1 + (6 - mar1.weekday()) % 7
+    dst_start = datetime.datetime(year, 3, first_sun_mar + 7, 7, 0)
+    nov1 = datetime.datetime(year, 11, 1)
+    first_sun_nov = 1 + (6 - nov1.weekday()) % 7
+    dst_end = datetime.datetime(year, 11, first_sun_nov, 6, 0)
+    probe = datetime.datetime(day.year, day.month, day.day, 12, 0)
+    return -4 if dst_start <= probe < dst_end else -5
+
+
+def trading_day(et=None):
+    """1G grafiğin ait olduğu işlem günü (04:00 ET öncesi önceki güne düşer)."""
+    et = et or et_now()
+    day = et.date()
+    if et.hour * 60 + et.minute < 4 * 60:
+        day -= datetime.timedelta(days=1)
+    for _ in range(14):
+        if day.weekday() < 5 and day not in market_holidays(day.year):
+            break
+        day -= datetime.timedelta(days=1)
+    return day
+
+
+def session_epoch_range(et=None):
+    """Aktif/son işlem gününün 04:00–20:00 ET aralığını epoch'a çevirir."""
+    et = et or et_now()
+    day = trading_day(et)
+    offset = _et_offset_hours(day)
+
+    def epoch(hour, minute=0):
+        wall = datetime.datetime(day.year, day.month, day.day, hour, minute)
+        return calendar.timegm(wall.timetuple()) - offset * 3600
+
+    return epoch(4), epoch(20, 5)
+
+
 def _cfg_bool(cfg, key, default):
     """config.json'daki gevşek yazılmış doğru/yanlış değerlerini normalize eder."""
     value = cfg.get(key, default)
@@ -470,22 +517,6 @@ def fetch_quote(symbol, include_prepost=True):
         h = max(o, c, h if h is not None else o)
         lo_ = min(o, c, lo_ if lo_ is not None else o)
         rows.append((stamps[i], c, o, h, lo_, _at("volume", i)))
-    if len(rows) > 60:
-        step = (len(rows) - 1) / 59.0
-        idx = list(dict.fromkeys(int(round(i * step)) for i in range(60)))
-        rows = [rows[i] for i in idx]
-    closes = [r[1] for r in rows]
-    spark_times = ([r[0] for r in rows] if stamps and stamps[0] is not None
-                   else [])
-    spark_volumes = [r[5] or 0 for r in rows]
-    spark_ohlc = [(r[2], r[3], r[4], r[1]) for r in rows]
-    highs = [h for h in quote.get("high") or [] if h is not None]
-    lows = [lo for lo in quote.get("low") or [] if lo is not None]
-    opens = [o for o in quote.get("open") or [] if o is not None]
-    volumes = [v for v in quote.get("volume") or [] if v]
-    day_high = meta.get("regularMarketDayHigh") or (max(highs) if highs else None)
-    day_low = meta.get("regularMarketDayLow") or (min(lows) if lows else None)
-    volume = meta.get("regularMarketVolume") or (sum(volumes) if volumes else None)
 
     # Seans dışı (piyasa öncesi/sonrası) fiyat: Yahoo aynı yanıtta veriyor.
     ext_session = None
@@ -502,6 +533,24 @@ def fetch_quote(symbol, include_prepost=True):
                 ext_abs = float(meta.get("fulldayChange"))
             except (TypeError, ValueError):
                 ext_abs = ext_price - float(price)
+            # Grafik son 5 dk barına değil, canlı seans dışı fiyata kadar uzasın
+            rows.append((now_ts, ext_price, ext_price, ext_price, ext_price, 0))
+    if len(rows) > 60:
+        step = (len(rows) - 1) / 59.0
+        idx = list(dict.fromkeys(int(round(i * step)) for i in range(60)))
+        rows = [rows[i] for i in idx]
+    closes = [r[1] for r in rows]
+    spark_times = ([r[0] for r in rows] if stamps and stamps[0] is not None
+                   else [])
+    spark_volumes = [r[5] or 0 for r in rows]
+    spark_ohlc = [(r[2], r[3], r[4], r[1]) for r in rows]
+    highs = [h for h in quote.get("high") or [] if h is not None]
+    lows = [lo for lo in quote.get("low") or [] if lo is not None]
+    opens = [o for o in quote.get("open") or [] if o is not None]
+    volumes = [v for v in quote.get("volume") or [] if v]
+    day_high = meta.get("regularMarketDayHigh") or (max(highs) if highs else None)
+    day_low = meta.get("regularMarketDayLow") or (min(lows) if lows else None)
+    volume = meta.get("regularMarketVolume") or (sum(volumes) if volumes else None)
 
     return {
         "symbol": symbol,
@@ -1443,7 +1492,14 @@ class DetailPanel:
         stamps = data["times"]
         if self.tf == "1D":
             left_lbl = "gün içi"
-            right_lbl = datetime.datetime.now().strftime("%H:%M")
+            if stamps:
+                last = stamps[-1]
+                right_lbl = datetime.datetime.fromtimestamp(last).strftime(
+                    "%H:%M")
+                if time.time() - last < 600:
+                    right_lbl = "şimdi"
+            else:
+                right_lbl = "—"
         else:
             left_lbl = right_lbl = "—"
             if stamps:

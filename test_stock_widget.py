@@ -136,9 +136,42 @@ class HelpersTest(unittest.TestCase):
             "pre": {"start": None, "end": None}}}, 150))
 
     def test_quote_url(self):
-        self.assertIn("includePrePost=true", sw.quote_url("AAPL"))
+        url = sw.quote_url("AAPL")
+        self.assertIn("includePrePost=true", url)
+        self.assertIn("period1=", url)
+        self.assertIn("period2=", url)
         self.assertNotIn("includePrePost", sw.quote_url("AAPL", False))
-        self.assertIn("/chart/AAPL?", sw.quote_url("AAPL"))
+        self.assertIn("/chart/AAPL?", url)
+
+    def test_trading_day(self):
+        def at(hour, day=17):
+            return datetime.datetime(2026, 11, day, hour, 0)
+
+        # 04:00 ET öncesi önceki işlem gününe düşer
+        self.assertEqual(sw.trading_day(at(3, day=18)),
+                         datetime.date(2026, 11, 17))
+        self.assertEqual(sw.trading_day(at(4, day=18)),
+                         datetime.date(2026, 11, 18))
+        # hafta sonu -> Cuma
+        self.assertEqual(sw.trading_day(at(12, day=21)),
+                         datetime.date(2026, 11, 20))
+        # tatil -> önceki işlem günü (26 Kasım 2026 Şükran Günü)
+        self.assertEqual(sw.trading_day(at(12, day=26)),
+                         datetime.date(2026, 11, 25))
+
+    def test_session_epoch_range(self):
+        start, end = sw.session_epoch_range(
+            datetime.datetime(2026, 11, 17, 6, 0))
+        self.assertEqual(end - start, 16 * 3600 + 5 * 60)
+        # 04:00 ET = 09:00 UTC (EST)
+        utc = datetime.datetime.fromtimestamp(start, datetime.timezone.utc)
+        self.assertEqual((utc.hour, utc.minute), (9, 0))
+        # yaz saati: 04:00 EDT = 08:00 UTC
+        start_dst, _ = sw.session_epoch_range(
+            datetime.datetime(2026, 7, 15, 6, 0))
+        utc_dst = datetime.datetime.fromtimestamp(start_dst,
+                                                 datetime.timezone.utc)
+        self.assertEqual((utc_dst.hour, utc_dst.minute), (8, 0))
 
     def test_session_labels(self):
         self.assertEqual(sw.SESSION_LABEL["pre"], "PÖ")

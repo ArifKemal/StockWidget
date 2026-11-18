@@ -59,7 +59,9 @@ geçişi, fareyle zaman-fiyat-yüzde okuması.
   genişlikli rakamlar, "son güncelleme" zamanı, piyasa durumu noktası.
 - **Seans dışı:** piyasa öncesi/sonrası fiyat ve değişim, satırda ve detay
   panelinde **PÖ** / **PS** rozetiyle gösterilir; etiket ve değerler Yahoo'nun
-  seans pencerelerinden alınır, ek istek yapılmaz.
+  seans pencerelerinden alınır, ek istek yapılmaz. 1G grafiği 04:00–20:00 ET
+  barlarını içerir, canlı seans dışı fiyatla biter; eksenin sağ ucu son veri
+  saatini ("şimdi" ya da saat) gösterir.
 - **Portföy:** toplam değer, günlük değişim ve pozisyon başına K/Z.
 - **Görünüm:** Gece / Slate / Grafit / Açık tema, %60–100 opaklık, normal/kompakt,
   her zaman üstte.
@@ -76,7 +78,9 @@ olduğu için istek sayısı bilinçli olarak düşük tutulur:
 
 - Fiyat + gün istatistikleri + 1G grafiği: **tek istek**.
 - Seans dışı fiyatlar (`includePrePost=true`): aynı yanıttaki `fullday*`
-  alanlarından okunur; ayrı istek yok.
+  alanlarından okunur; ayrı istek yok. 1G penceresi `range=1d` yerine açık
+  `period1`/`period2` ile istenir — piyasa öncesi saatlerde Yahoo'nun önceki
+  seansa düşmesini engeller.
 - 1H / 1A / 1Y: sekmeye ilk tıklamada birer istek, sonra önbellekten.
 - Semboller arasında 0,4 s bekleme; varsayılan aralıklarda 5 sembol ≈ günde
   ~300 istek.
@@ -117,7 +121,7 @@ cd StockWidget
 pip install -r requirements.txt
 pythonw stock_widget.py        # konsolsuz çalıştırma
 
-python -m unittest test_stock_widget.py    # 19 test, ağa çıkmaz
+python -m unittest test_stock_widget.py    # 23 test, ağa çıkmaz
 python tools/bump_version.py 1.1.0
 ```
 

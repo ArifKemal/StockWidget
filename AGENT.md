@@ -334,6 +334,11 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       yenileme durmaz.
     - Test: `market_phase`, `market_open/active`, `session_from_meta`,
       `extended_session`, `quote_url`, `SESSION_LABEL` birim testleri var.
+    - 1G grafik: `range=1d` piyasa öncesi saatlerde önceki seansa düşebildiği
+      için URL artık açık `period1`/`period2` kullanıyor
+      (`session_epoch_range`: işlem günü 04:00–20:05 ET; 04:00 öncesi önceki
+      işlem günü). Seans dışı fiyat grafiğin sonuna canlı nokta olarak eklenir.
+      Eksenin sağ etiketi "şimdi" ya da son barın yerel saati.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat
