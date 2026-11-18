@@ -314,6 +314,26 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
     - Not: aynı güvenlik yazılımı imzasız exe'nin `%APPDATA%`'ya yazmasını da
       engelleyebilir (config/log kaydedilmez); istisna eklenmeli. Kaynak modda
       sorun yok. Windows 11 yeni simgeleri **^** gizli alanına koyabilir.
+24. **Piyasa öncesi/sonrası (PÖ/PS) verisi** —
+    - URL'e `includePrePost=true` eklendi (`quote_url`). Ek istek yok: Yahoo
+      aynı yanıtta `fulldayPrice`, `fulldayChange`, `fulldayChangePercent`
+      döndürüyor. `fulldayChangePercent` **normal seans fiyatına göre** değişim.
+    - Seans tespiti: `session_from_meta()` `currentTradingPeriod.pre/post`
+      pencerelerini epoch ile karşılaştırır; pencere hiç yoksa
+      `extended_session()` saat bazlı `market_phase()` tahminine düşer.
+      `market_phase`: ET 04:00–09:30 `pre`, 09:30–16:00 `regular`,
+      16:00–20:00 `post`; tatiller/hafta sonu kapalı.
+    - Görünüm: satır fiyatı ve rozeti seans dışı değeri gösterir
+      (`PÖ ▼ -0,64%` / `PS ▲ +1,2%`); saat yanındaki nokta normal seansta
+      yeşil, seans dışında amber, kapalıyken soluk; noktanın solunda PÖ/PS
+      etiketi. Detay panelinde büyük fiyat + rozet seans dışı, alt satırda
+      "son kapanış ... (...%)". Normal seans değerleri detayda kalır.
+    - Ayar: `extended_hours` (varsayılan `true`), Ayarlar → VERİ.
+      Kapatınca `fetch_quote(sym, False)` çağrılır ve rozet gizlenir.
+    - `pause_when_closed` artık `market_active()` kullanır: seans dışı açıkken
+      yenileme durmaz.
+    - Test: `market_phase`, `market_open/active`, `session_from_meta`,
+      `extended_session`, `quote_url`, `SESSION_LABEL` birim testleri var.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

@@ -90,6 +90,72 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(out[-1][3], 100.0)
         self.assertTrue(all(b[1] >= b[3] for b in out))
 
+    def test_market_phase(self):
+        def at(h, m=0, day=17):
+            return datetime.datetime(2026, 11, day, h, m)
+
+        self.assertEqual(sw.market_phase(at(3, 59)), None)
+        self.assertEqual(sw.market_phase(at(4, 0)), "pre")
+        self.assertEqual(sw.market_phase(at(9, 29)), "pre")
+        self.assertEqual(sw.market_phase(at(9, 30)), "regular")
+        self.assertEqual(sw.market_phase(at(15, 59)), "regular")
+        self.assertEqual(sw.market_phase(at(16, 0)), "post")
+        self.assertEqual(sw.market_phase(at(19, 59)), "post")
+        self.assertEqual(sw.market_phase(at(20, 0)), None)
+        # hafta sonu (21 Kasım 2026 Cumartesi)
+        self.assertEqual(sw.market_phase(at(10, 0, day=21)), None)
+        # tatil (26 Kasım 2026 Şükran Günü)
+        self.assertEqual(sw.market_phase(at(10, 0, day=26)), None)
+
+    def test_market_open_and_active(self):
+        saved = sw.market_phase
+        try:
+            sw.market_phase = lambda et=None: "pre"
+            self.assertFalse(sw.market_open())
+            self.assertTrue(sw.market_active())
+            sw.market_phase = lambda et=None: "regular"
+            self.assertTrue(sw.market_open())
+            self.assertTrue(sw.market_active())
+            sw.market_phase = lambda et=None: None
+            self.assertFalse(sw.market_open())
+            self.assertFalse(sw.market_active())
+        finally:
+            sw.market_phase = saved
+
+    def test_session_from_meta(self):
+        meta = {"currentTradingPeriod": {
+            "pre": {"start": 100, "end": 200},
+            "regular": {"start": 200, "end": 300},
+            "post": {"start": 300, "end": 400},
+        }}
+        self.assertEqual(sw.session_from_meta(meta, 150), "pre")
+        self.assertEqual(sw.session_from_meta(meta, 350), "post")
+        self.assertIsNone(sw.session_from_meta(meta, 250))
+        self.assertIsNone(sw.session_from_meta({}, 250))
+        self.assertIsNone(sw.session_from_meta({"currentTradingPeriod": {
+            "pre": {"start": None, "end": None}}}, 150))
+
+    def test_quote_url(self):
+        self.assertIn("includePrePost=true", sw.quote_url("AAPL"))
+        self.assertNotIn("includePrePost", sw.quote_url("AAPL", False))
+        self.assertIn("/chart/AAPL?", sw.quote_url("AAPL"))
+
+    def test_session_labels(self):
+        self.assertEqual(sw.SESSION_LABEL["pre"], "PÖ")
+        self.assertEqual(sw.SESSION_LABEL["post"], "PS")
+
+    def test_extended_session_fallback(self):
+        # Meta'da pencere yoksa saat bazlı tahmin kullanılır
+        self.assertEqual(sw.extended_session({}, 100, "pre"), "pre")
+        self.assertEqual(sw.extended_session({}, 100, "post"), "post")
+        self.assertIsNone(sw.extended_session({}, 100, "regular"))
+        self.assertIsNone(sw.extended_session({}, 100))
+        # Pencere varsa ama şu anı kapsamıyorsa tahmine düşülmez
+        meta = {"currentTradingPeriod": {
+            "pre": {"start": 1000, "end": 2000},
+            "post": {"start": 3000, "end": 4000}}}
+        self.assertIsNone(sw.extended_session(meta, 500, "pre"))
+
 
 class ConfigTest(unittest.TestCase):
     def _load_with(self, payload):
@@ -124,6 +190,7 @@ class ConfigTest(unittest.TestCase):
         self.assertTrue(cfg["always_on_top"])
         self.assertTrue(cfg["close_to_tray"])
         self.assertFalse(cfg["pause_when_closed"])
+        self.assertTrue(cfg["extended_hours"])
         self.assertEqual(cfg["refresh_open"], 15)
         self.assertEqual(cfg["refresh_closed"], 60)
 

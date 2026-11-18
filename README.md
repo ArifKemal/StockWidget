@@ -57,6 +57,9 @@ geçişi, fareyle zaman-fiyat-yüzde okuması.
 
 - **Kart:** sembol, fiyat, günlük değişim, şirket adı ve mini grafik; sabit
   genişlikli rakamlar, "son güncelleme" zamanı, piyasa durumu noktası.
+- **Seans dışı:** piyasa öncesi/sonrası fiyat ve değişim, satırda ve detay
+  panelinde **PÖ** / **PS** rozetiyle gösterilir; etiket ve değerler Yahoo'nun
+  seans pencerelerinden alınır, ek istek yapılmaz.
 - **Portföy:** toplam değer, günlük değişim ve pozisyon başına K/Z.
 - **Görünüm:** Gece / Slate / Grafit / Açık tema, %60–100 opaklık, normal/kompakt,
   her zaman üstte.
@@ -72,20 +75,22 @@ geçişi, fareyle zaman-fiyat-yüzde okuması.
 olduğu için istek sayısı bilinçli olarak düşük tutulur:
 
 - Fiyat + gün istatistikleri + 1G grafiği: **tek istek**.
+- Seans dışı fiyatlar (`includePrePost=true`): aynı yanıttaki `fullday*`
+  alanlarından okunur; ayrı istek yok.
 - 1H / 1A / 1Y: sekmeye ilk tıklamada birer istek, sonra önbellekten.
 - Semboller arasında 0,4 s bekleme; varsayılan aralıklarda 5 sembol ≈ günde
   ~300 istek.
 
-**Gecikme:** Yahoo verisi gecikmeli olabilir; pre/post market yok. Yatırım kararı
-için kullanmayın.
+**Gecikme:** Yahoo verisi gecikmeli olabilir; seans dışı fiyatlar düşük
+likidite nedeniyle normal seanstan sapabilir. Yatırım kararı için kullanmayın.
 
 ## Ayarlar
 
 Sağ tık → **Ayarlar…**: görünüm (tema, opaklık, yoğunluk, her zaman üstte,
-konumu sıfırla), veri (yenileme aralıkları, kapalıyken durdur, elle yenile),
-davranış (otomatik başlat, ✕ davranışı) ve gelişmiş (ayar klasörü). Değişiklikler
-anında uygulanır; **Sıfırla** yalnızca ayarları varsayılana döndürür
-(semboller, portföy ve otomatik başlatma korunur).
+konumu sıfırla), veri (yenileme aralıkları, piyasa öncesi/sonrası, kapalıyken
+durdur, elle yenile), davranış (otomatik başlat, ✕ davranışı) ve gelişmiş
+(ayar klasörü). Değişiklikler anında uygulanır; **Sıfırla** yalnızca ayarları
+varsayılana döndürür (semboller, portföy ve otomatik başlatma korunur).
 
 `%APPDATA%\StockWidget\config.json` (portatif modda `SW_DATA_DIR` altında).
 Bozuk alan uygulamayı kilitlemez, varsayılana döner.
@@ -99,7 +104,8 @@ Bozuk alan uygulamayı kilitlemez, varsayılana döner.
 | `density` | `normal` ya da `compact`. |
 | `always_on_top` | `true` / `false`; varsayılan `true`. |
 | `refresh_open`, `refresh_closed` | Yenileme aralığı (dakika, 1–1440). |
-| `pause_when_closed` | `true` ise piyasa kapalıyken istek gönderilmez. |
+| `pause_when_closed` | `true` ise hiçbir seans açık değilken istek gönderilmez. |
+| `extended_hours` | `true` ise piyasa öncesi/sonrası (**PÖ**/**PS**) verisi gösterilir. |
 | `close_to_tray` | `true` ise **✕** tepsiye gizler; `false` ise çıkar. |
 | `positions` | `{ "AAPL": { "qty": 12, "avg": 185.4 } }` |
 
@@ -111,7 +117,7 @@ cd StockWidget
 pip install -r requirements.txt
 pythonw stock_widget.py        # konsolsuz çalıştırma
 
-python -m unittest test_stock_widget.py    # 13 test, ağa çıkmaz
+python -m unittest test_stock_widget.py    # 19 test, ağa çıkmaz
 python tools/bump_version.py 1.1.0
 ```
 

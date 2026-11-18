@@ -93,8 +93,15 @@ def migrate_legacy_config():
         pass
 
 
-API_URL = ("https://query1.finance.yahoo.com/v8/finance/chart/"
-           "{s}?interval=5m&range=1d")
+API_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{s}?interval=5m&range=1d"
+
+
+def quote_url(symbol, include_prepost=True):
+    """Yahoo grafik URL'i; seans dışı barlar istenirse eklenir."""
+    url = API_URL.format(s=symbol)
+    if include_prepost:
+        url += "&includePrePost=true"
+    return url
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -124,6 +131,7 @@ SETTINGS_DEFAULTS = {
     "refresh_open": 15,
     "refresh_closed": 60,
     "pause_when_closed": False,
+    "extended_hours": True,
     "close_to_tray": True,
 }
 
@@ -299,14 +307,64 @@ def market_holidays(year):
     return days
 
 
-def market_open():
-    et = et_now()
+def market_phase(et=None):
+    """ABD borsası seansı: 'pre', 'regular', 'post' ya da None (kapalı)."""
+    et = et or et_now()
     if et.weekday() >= 5:
-        return False
+        return None
     if datetime.date(et.year, et.month, et.day) in market_holidays(et.year):
-        return False
+        return None
     t = et.hour * 60 + et.minute
-    return 9 * 60 + 30 <= t < 16 * 60
+    if 4 * 60 <= t < 9 * 60 + 30:          # 04:00–09:30 ET öncesi seans
+        return "pre"
+    if 9 * 60 + 30 <= t < 16 * 60:         # 09:30–16:00 ET normal seans
+        return "regular"
+    if 16 * 60 <= t < 20 * 60:             # 16:00–20:00 ET sonrası seans
+        return "post"
+    return None
+
+
+def market_open():
+    """Normal seans açık mı?"""
+    return market_phase() == "regular"
+
+
+def market_active():
+    """Herhangi bir seans (öncesi/normal/sonrası) açık mı?"""
+    return market_phase() is not None
+
+
+def session_from_meta(meta, now_ts):
+    """Yahoo meta'sındaki seans pencerelerinden aktif seansı bulur."""
+    periods = meta.get("currentTradingPeriod") or {}
+    for name in ("pre", "post"):
+        part = periods.get(name) or {}
+        start, end = part.get("start"), part.get("end")
+        if start and end and start <= now_ts <= end:
+            return name
+    return None
+
+
+# Seans dışı etiketleri: piyasa öncesi / piyasa sonrası
+SESSION_LABEL = {"pre": "PÖ", "post": "PS"}
+
+
+def extended_session(meta, now_ts, phase=None):
+    """Seans dışı oturumu belirler.
+
+    Önce Yahoo'nun kendi pencereleri (exchange saatleri) kullanılır. Meta'da
+    hiç pencere yoksa saat bazlı `phase` tahminine düşülür; böylece bazı
+    sembollerde `currentTradingPeriod` eksik olduğunda da PÖ/PS görünür.
+    """
+    session = session_from_meta(meta, now_ts)
+    if session:
+        return session
+    periods = meta.get("currentTradingPeriod") or {}
+    has_windows = any((periods.get(key) or {}).get("start")
+                      for key in ("pre", "post"))
+    if not has_windows and phase in SESSION_LABEL:
+        return phase
+    return None
 
 
 def _cfg_bool(cfg, key, default):
@@ -349,6 +407,7 @@ def load_config():
     cfg["always_on_top"] = _cfg_bool(cfg, "always_on_top", True)
     cfg["close_to_tray"] = _cfg_bool(cfg, "close_to_tray", True)
     cfg["pause_when_closed"] = _cfg_bool(cfg, "pause_when_closed", False)
+    cfg["extended_hours"] = _cfg_bool(cfg, "extended_hours", True)
     for key, default in (("refresh_open", 15), ("refresh_closed", 60)):
         try:
             minutes = int(cfg.get(key, default))
@@ -366,8 +425,8 @@ def save_config(cfg):
         pass
 
 
-def fetch_quote(symbol):
-    url = API_URL.format(s=symbol)
+def fetch_quote(symbol, include_prepost=True):
+    url = quote_url(symbol, include_prepost)
     resp = requests.get(url, headers=HEADERS, timeout=10)
     resp.raise_for_status()
     data = resp.json()
@@ -427,6 +486,23 @@ def fetch_quote(symbol):
     day_high = meta.get("regularMarketDayHigh") or (max(highs) if highs else None)
     day_low = meta.get("regularMarketDayLow") or (min(lows) if lows else None)
     volume = meta.get("regularMarketVolume") or (sum(volumes) if volumes else None)
+
+    # Seans dışı (piyasa öncesi/sonrası) fiyat: Yahoo aynı yanıtta veriyor.
+    ext_session = None
+    ext_price = ext_pct = ext_abs = None
+    if include_prepost and meta.get("hasPrePostMarketData"):
+        now_ts = time.time()
+        ext_session = extended_session(meta, now_ts, market_phase())
+        price_full = meta.get("fulldayPrice")
+        pct_full = meta.get("fulldayChangePercent")
+        if ext_session and price_full is not None and pct_full is not None:
+            ext_price = float(price_full)
+            ext_pct = float(pct_full)
+            try:
+                ext_abs = float(meta.get("fulldayChange"))
+            except (TypeError, ValueError):
+                ext_abs = ext_price - float(price)
+
     return {
         "symbol": symbol,
         "name": meta.get("shortName") or meta.get("longName") or symbol,
@@ -436,6 +512,10 @@ def fetch_quote(symbol):
         "prev_close": float(prev),
         "change_pct": (float(price) / float(prev) - 1.0) * 100.0,
         "change_abs": float(price) - float(prev),
+        "ext_session": ext_session,
+        "ext_price": ext_price,
+        "ext_change_pct": ext_pct,
+        "ext_change_abs": ext_abs,
         "open": float(opens[0]) if opens else None,
         "day_high": float(day_high) if day_high else None,
         "day_low": float(day_low) if day_low else None,
@@ -1298,7 +1378,15 @@ class DetailPanel:
         cur = info.get("currency") or "USD"
         price = info.get("price")
         pct = info.get("change_pct")
-        up = (pct or 0) >= 0
+        ext = (info.get("ext_session")
+               if self.app.cfg.get("extended_hours", True) else None)
+        ext_price, ext_pct = info.get("ext_price"), info.get("ext_change_pct")
+        use_ext = (ext in ("pre", "post") and ext_price is not None
+                   and ext_pct is not None)
+        # Seans dışında büyük fiyat/rozet canlı seans dışı değeri gösterir
+        disp_price = ext_price if use_ext else price
+        disp_pct = ext_pct if use_ext else pct
+        up = (disp_pct or 0) >= 0
         col = GREEN if up else RED
         bg = GREEN_DIM if up else RED_DIM
         x2 = W - pad
@@ -1313,10 +1401,12 @@ class DetailPanel:
         c.create_text(pad, s(39), text=name, anchor="w", fill=MUTED,
                       font=("Segoe UI", 7))
 
-        c.create_text(pad, s(70), text=fmt_money(price, cur), anchor="w",
+        c.create_text(pad, s(70), text=fmt_money(disp_price, cur), anchor="w",
                       fill=FG, font=(self.app.mono, 19, "bold"))
-        if pct is not None:
-            pct_txt = ("▲ " if up else "▼ ") + "%+.2f%%" % pct
+        if disp_pct is not None:
+            pct_txt = ("▲ " if up else "▼ ") + "%+.2f%%" % disp_pct
+            if use_ext:
+                pct_txt = "%s %s" % (SESSION_LABEL.get(ext, ""), pct_txt)
             pw = self.app.font_pct.measure(pct_txt) + s(16)
             ph = s(19)
             py1 = s(61)
@@ -1324,8 +1414,15 @@ class DetailPanel:
             c.create_text(x2 - pw / 2.0, py1 + ph / 2.0, text=pct_txt,
                           fill=col, font=("Segoe UI", 8, "bold"))
         change = info.get("change_abs")
-        if change is not None:
-            c.create_text(pad, s(95), text="bugün %+.2f" % change,
+        if use_ext and pct is not None:
+            # Seans dışı: son normal seans kapanışı ve değişimi
+            line = "son kapanış %s (%+.2f%%)" % (fmt_money(price, cur), pct)
+        elif change is not None:
+            line = "bugün %+.2f" % change
+        else:
+            line = None
+        if line:
+            c.create_text(pad, s(95), text=line,
                           anchor="w", fill=MUTED, font=("Segoe UI", 7))
 
         self._draw_tabs(pad, s(108), s(128))
@@ -1595,6 +1692,13 @@ class StockWidget:
         self.cfg["close_to_tray"] = bool(value)
         save_config(self.cfg)
 
+    def set_extended_hours(self, value):
+        self.cfg["extended_hours"] = bool(value)
+        save_config(self.cfg)
+        self.wake.set()
+        # Veri kaynağı değişti: satırları hemen tazele
+        self.refresh_now()
+
     def _status_tick(self):
         try:
             self._update_status()
@@ -1746,6 +1850,9 @@ class StockWidget:
         self.dot_id = c.create_oval(dot_x, self.s(14),
                                     dot_x + self.s(5), self.s(19),
                                     fill=MUTED, outline="")
+        self.phase_id = c.create_text(dot_x - self.s(5), self.s(17), text="",
+                                      anchor="e", fill=AMBER,
+                                      font=("Segoe UI", 6, "bold"))
         self.time_id = c.create_text(time_x, self.s(17), text="--:--",
                                      anchor="e", fill=MUTED,
                                      font=self.f_foot)
@@ -1808,11 +1915,26 @@ class StockWidget:
         up = pct >= 0
         col = GREEN if up else RED
         bg = GREEN_DIM if up else RED_DIM
-        price_txt = fmt_money(info["price"], info.get("currency"))
+        spark_col = col
+        price_val = info["price"]
+        # Seans dışı (piyasa öncesi/sonrası) veri varsa onu göster
+        ext = (info.get("ext_session")
+               if self.cfg.get("extended_hours", True) else None)
+        ext_pct = info.get("ext_change_pct")
+        if ext and info.get("ext_price") is not None and ext_pct is not None:
+            price_val = info["ext_price"]
+            pct = ext_pct
+            up = pct >= 0
+            col = GREEN if up else RED
+            bg = GREEN_DIM if up else RED_DIM
+            label = SESSION_LABEL.get(ext, "")
+            txt = "%s %s %+.2f%%" % (label, "▲" if up else "▼", pct)
+        else:
+            txt = ("▲ " if up else "▼ ") + "%+.2f%%" % pct
+        price_txt = fmt_money(price_val, info.get("currency"))
         c.itemconfig(it["price"], text=price_txt,
                      fill=MUTED if self.offline else FG)
         # değişim rozeti (trend oklu)
-        txt = ("▲ " if up else "▼ ") + "%+.2f%%" % pct
         tw = self.font_pct.measure(txt)
         ph = self.ro(17)
         pw = tw + self.s(14)
@@ -1838,7 +1960,7 @@ class StockWidget:
         if len(spark) > 1:
             sx1, sy1 = self.PAD, y + self.ro(25)
             if PIL_AVAILABLE:
-                img = render_spark(spark, sw, sh, col, fill=col)
+                img = render_spark(spark, sw, sh, spark_col, fill=spark_col)
                 photo = ImageTk.PhotoImage(img, master=self.root)
                 self._row_photos[sym] = photo
                 c.create_image(sx1, sy1, image=photo, anchor="nw",
@@ -1851,12 +1973,12 @@ class StockWidget:
                 for i, v in enumerate(spark):
                     pts.extend((sx1 + sw * i / float(n - 1),
                                 sy1 + sh - (v - lo) / rng * sh))
-                c.create_line(*pts, fill=col,
+                c.create_line(*pts, fill=spark_col,
                               width=max(1, int(round(1.4 * self.S))),
                               tags=(it["tag"],))
                 c.create_oval(pts[-2] - self.s(2), pts[-1] - self.s(2),
                               pts[-2] + self.s(2), pts[-1] + self.s(2),
-                              fill=col, outline="", tags=(it["tag"],))
+                              fill=spark_col, outline="", tags=(it["tag"],))
         else:
             # veri gelene kadar iskelet çizgi
             c.create_line(self.PAD, y + self.ro(32), self.PAD + sw,
@@ -1865,14 +1987,20 @@ class StockWidget:
 
     def _update_status(self):
         c = self.canvas
+        phase = market_phase()
         if self.offline:
             dot = AMBER
-        elif market_open():
+        elif phase == "regular":
             dot = GREEN
+        elif phase in ("pre", "post"):
+            dot = AMBER
         else:
             dot = DIM
         try:
             c.itemconfig(self.dot_id, fill=dot)
+            c.itemconfig(self.phase_id, text=(
+                SESSION_LABEL.get(phase, "")
+                if self.cfg.get("extended_hours", True) else ""))
             c.itemconfig(self.time_id, text=datetime.datetime.now().strftime("%H:%M"))
             c.itemconfig(self.upd_id, text=(
                 "çevrimdışı · deneniyor…" if self.offline
@@ -2626,6 +2754,11 @@ class StockWidget:
         self._settings_note("Piyasa kapalıyken yenileme %s."
                             % ("duruyor" if value else "sürüyor"))
 
+    def _pick_extended_hours(self, value):
+        self.set_extended_hours(value)
+        self._settings_note("Piyasa öncesi/sonrası veri %s."
+                            % ("gösteriliyor" if value else "kapalı"))
+
     def _pick_close_to_tray(self, value):
         self.set_close_to_tray(value)
         self._settings_note("✕ %s."
@@ -2939,6 +3072,12 @@ class StockWidget:
                   lambda v: self.set_refresh("refresh_closed", v)).pack(
             side="right", padx=(0, s(9)))
 
+        row, _ = add_row(card, "Piyasa öncesi/sonrası",
+                         "PÖ / PS fiyat ve değişimi göster")
+        switch(row, lambda: self.cfg.get("extended_hours", True),
+               self._pick_extended_hours).pack(side="right",
+                                               padx=(0, s(11)))
+
         row, _ = add_row(card, "Piyasa kapalıyken durdur",
                          "İstek göndermez, açılışı bekler")
         switch(row, lambda: self.cfg.get("pause_when_closed", False),
@@ -3092,7 +3231,8 @@ class StockWidget:
 
     def fetch_loop(self):
         while not self.stop_flag.is_set():
-            is_open = market_open()
+            extended = self.cfg.get("extended_hours", True)
+            is_open = market_active() if extended else market_open()
             if (not is_open and self.cfg.get("pause_when_closed")
                     and not self._force_refresh):
                 # Piyasa kapalı ve yenileme duraklatıldı: ağ isteği yok,
@@ -3116,7 +3256,7 @@ class StockWidget:
                 if i:
                     time.sleep(0.4)
                 try:
-                    results[sym] = fetch_quote(sym)
+                    results[sym] = fetch_quote(sym, extended)
                 except requests.exceptions.HTTPError as exc:
                     if exc.response is not None and exc.response.status_code == 429:
                         time.sleep(THROTTLE_429)
@@ -3126,7 +3266,8 @@ class StockWidget:
             if failures:
                 log.warning("fetch: %d/%d sembol başarısız",
                             failures, len(symbols))
-            is_open = market_open()
+            extended = self.cfg.get("extended_hours", True)
+            is_open = market_active() if extended else market_open()
             interval = self._refresh_minutes(is_open) * 60
             offline = failures == len(symbols) and not results
             if failures and not results:
