@@ -490,7 +490,7 @@ def fetch_quote(symbol, include_prepost=True):
     # Seans dışı (piyasa öncesi/sonrası) fiyat: Yahoo aynı yanıtta veriyor.
     ext_session = None
     ext_price = ext_pct = ext_abs = None
-    if include_prepost and meta.get("hasPrePostMarketData"):
+    if include_prepost:
         now_ts = time.time()
         ext_session = extended_session(meta, now_ts, market_phase())
         price_full = meta.get("fulldayPrice")
