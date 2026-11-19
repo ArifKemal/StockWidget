@@ -29,6 +29,11 @@ DefaultDirName={localappdata}\Programs\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
+CloseApplications=yes
+RestartApplications=no
+SetupLogging=yes
+UsePreviousAppDir=yes
+MinVersion=10.0
 OutputDir=Output
 OutputBaseFilename={#MyAppName}-{#MyAppVersion}-setup
 SetupIconFile=stock.ico
@@ -56,9 +61,9 @@ Name: "autostart"; Description: "Windows açılışında StockWidget'i başlat";
 Source: "dist\{#MyAppName}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Check: CanCreateShortcuts
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--toggle"; Check: CanCreateShortcuts
 Name: "{group}\{#MyAppName} kaldır"; Filename: "{uninstallexe}"; Check: CanCreateShortcuts
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; Check: CanCreateDesktopIcon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--toggle"; Tasks: desktopicon; Check: CanCreateDesktopIcon
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#MyAppName}"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue; Tasks: autostart

@@ -14,6 +14,38 @@ env:
 jobs:
   test:
     runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Bağımlılıklar
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Sözdizimi ve testler
+        run: |
+          python -m py_compile stock_widget.py
+          python -m coverage run -m unittest test_stock_widget.py
+          python -m coverage report --include="stock_widget.py" --fail-under=25
+          python stock_widget.py --version
+
+  build:
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -25,15 +57,9 @@ jobs:
       - name: Bağımlılıklar
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pyinstaller
+          python -m pip install -r requirements-dev.txt
 
-      - name: Sözdizimi ve testler
-        run: |
-          python -m py_compile stock_widget.py
-          python -m unittest test_stock_widget.py
-          python stock_widget.py --version
-
-      - name: Paketleme dumanı (PyInstaller)
+      - name: Paketleme (PyInstaller)
         run: |
           python -m PyInstaller --noconfirm --clean StockWidget.spec
           python -m PyInstaller --noconfirm --clean --distpath dist-onefile StockWidget-onefile.spec
@@ -48,3 +74,35 @@ jobs:
             Write-Host "$exe -> $v"
             if ($v -ne $expected) { throw "Sürüm uyuşmuyor: $exe ($v != $expected)" }
           }
+
+      - name: GUI duman testi (pencere açılıp kapanıyor mu?)
+        shell: pwsh
+        run: |
+          # SW_SMOKE: uygulama 12 sn sonra kendini kapatır.
+          $env:SW_DATA_DIR = Join-Path $env:RUNNER_TEMP "sw-smoke"
+          $env:SW_SMOKE = "1"
+          New-Item -ItemType Directory -Force $env:SW_DATA_DIR | Out-Null
+          $exe = "dist\StockWidget\StockWidget.exe"
+          $p = Start-Process -FilePath $exe -PassThru
+          if (-not $p.WaitForExit(60000)) { $p.Kill(); throw "GUI smoke zaman aşımı" }
+          if ($p.ExitCode -ne 0) { throw "GUI smoke hata kodu: $($p.ExitCode)" }
+          $log = Join-Path $env:SW_DATA_DIR "sw.log"
+          if (-not (Test-Path $log)) { throw "log dosyası yok: $log" }
+          if (-not (Select-String -Path $log -Pattern "pid" -Quiet)) {
+            throw "uygulama başlangıcı loga yazılmadı"
+          }
+          Write-Host "GUI smoke OK"
+
+      - name: Inno Setup kur
+        run: choco install innosetup --no-progress -y
+
+      - name: Kurulum paketi derlemesi
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            $iscc = Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"
+          }
+          if (!(Test-Path $iscc)) { throw "ISCC.exe bulunamadı" }
+          & $iscc "/DMyAppVersion=0.0.0" installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup derlemesi başarısız" }

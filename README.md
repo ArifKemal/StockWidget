@@ -61,9 +61,11 @@ $env:SW_DATA_DIR = "$PWD\veri"
   "animasyonları göster" kapalıysa hareketler otomatik devre dışı kalır.
 - **Tepsi:** göster/gizle, yenile, ayarlar, semboller, otomatik başlatma, çıkış.
 - **Dayanıklılık:** varsayılan açıkken 15 dk, kapalıyken 60 dk yenileme (Ayarlar'dan
-  değiştirilebilir); hata sonrası 90 s, HTTP 429'da 5 dk bekleme; NYSE tatilleri
-  kapalı sayılır; tek kopya çalışır. "Piyasa kapalıyken durdur" seçilirse kapalıyken
-  hiç istek gönderilmez.
+  değiştirilebilir); hata sonrası 90 s bekleme. HTTP 429 gelirse kalan semboller
+  atlanır ve `Retry-After` başlığına göre (en az 1 dk) beklenir. NYSE tatilleri ve
+  13:00 ET erken kapanışları (şükran sonrası, Noel arifesi, 3 Temmuz) kapalı sayılır.
+  Tek kopya çalışır. "Piyasa kapalıyken durdur" seçilirse kapalıyken hiç istek
+  gönderilmez.
 
 ## Veri kaynağı
 
@@ -75,7 +77,8 @@ olduğu için istek sayısı bilinçli olarak düşük tutulur:
   `prev_close`e göre hesaplanır; ayrı istek yok. 1G penceresi `range=1d` yerine
   açık `period1`/`period2` ile istenir — piyasa öncesi saatlerde Yahoo'nun
   önceki seansa düşmesini engeller.
-- 1H / 1A / 1Y: sekmeye ilk tıklamada birer istek, sonra önbellekten.
+- 1H / 1A / 1Y: sekmeye ilk tıklamada birer istek; sonra önbellekten (1H: 15 dk,
+  1A/1Y: 60 dk). Süre dolunca sekme yeniden açıldığında tazelenir.
 - Semboller arasında 0,4 s bekleme; varsayılan aralıklarda 5 sembol ≈ günde
   ~300 istek.
 
@@ -91,12 +94,15 @@ durdur, elle yenile), davranış (otomatik başlat, ✕ davranışı) ve gelişm
 varsayılana döndürür (semboller, portföy ve otomatik başlatma korunur).
 
 `%APPDATA%\StockWidget\config.json` (portatif modda `SW_DATA_DIR` altında).
-Bozuk alan uygulamayı kilitlemez, varsayılana döner.
+Bozuk alan uygulamayı kilitlemez, varsayılana döner; dosya hiç okunamazsa
+`config.json.bak` yedeğinden kurtarılır. Yazma atomiktir (geçici dosya + yer
+değiştirme), böylece yarıda kesilse bile eski ayarlar bozulmaz. Bilinmeyen
+anahtarlar korunur; geçersiz sembol/pozisyon satırları sessizce atılır.
 
 | Anahtar | Değer |
 |---|---|
-| `symbols` | Ticker listesi; boşsa varsayılan 5 sembol. |
-| `x`, `y` | Kartın konumu; sürükleyince kaydedilir. |
+| `symbols` | Ticker listesi; boşsa varsayılan 5 sembol; en fazla 20, tekrarsız. |
+| `x`, `y` | Kartın konumu; sürükleyince kaydedilir (`null` ise sağ alt köşe). |
 | `theme` | `gece`, `slate`, `grafit`, `acik`. |
 | `opacity` | 0.6–1.0. |
 | `density` | `normal` ya da `compact`. |

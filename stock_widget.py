@@ -1,6 +1,8 @@
 import os
+import re
 import sys
 import json
+import math
 import time
 import queue
 import ctypes
@@ -10,7 +12,6 @@ import calendar
 import logging
 import shutil
 import threading
-import traceback
 import tkinter as tk
 import tkinter.font as tkfont
 from logging.handlers import RotatingFileHandler
@@ -143,6 +144,13 @@ SETTINGS_DEFAULTS = {
     "close_to_tray": True,
 }
 
+DEFAULT_SYMBOLS = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN"]
+MAX_SYMBOLS = 20
+# Yahoo sembolleri: AAPL, BRK-B, ^GSPC, ES=F, BTC-USD
+SYMBOL_RE = re.compile(r"^[A-Z0-9^][A-Z0-9.\-^=]{0,11}$")
+# config.json bozuk çıkıp yedekten kurtarıldıysa yedeği ezmemek için
+_CONFIG_FROM_BACKUP = False
+
 KEY = "#010203"          # transparentcolor key (rounded corners)
 
 PALETTES = {
@@ -263,6 +271,35 @@ def _nth_weekday(year, month, weekday, n):
         days=(weekday - first.weekday()) % 7 + (n - 1) * 7)
 
 
+def virtual_screen():
+    """Sanal masaüstü sınırları: (x, y, genişlik, yükseklik).
+
+    Çoklu monitörde ikincil ekrandaki pencere birincil ekran sınırlarına
+    kırpılmasın diye tüm monitörleri kapsayan dikdörtgen döner.
+    """
+    try:
+        sm = ctypes.windll.user32.GetSystemMetrics
+        x, y = int(sm(76)), int(sm(77))     # SM_X/YVIRTUALSCREEN
+        w, h = int(sm(78)), int(sm(79))     # SM_CX/CYVIRTUALSCREEN
+        if w > 0 and h > 0:
+            return x, y, w, h
+    except Exception:
+        pass
+    try:
+        sm = ctypes.windll.user32.GetSystemMetrics
+        return 0, 0, int(sm(0)), int(sm(1))
+    except Exception:
+        return 0, 0, 1920, 1080
+
+
+def clamp_to_screen(x, y, width, height, margin_x=80, margin_y=40):
+    """Pencereyi sanal masaüstünün içinde tut (en az bir tutamak görünür)."""
+    vx, vy, vw, vh = virtual_screen()
+    x = max(vx - (width - margin_x), min(x, vx + vw - margin_x))
+    y = max(vy, min(y, vy + vh - margin_y))
+    return x, y
+
+
 def _last_weekday(year, month, weekday):
     """year/month ayındaki son `weekday` gününü döndürür."""
     if month == 12:
@@ -281,10 +318,10 @@ def _easter(year):
     g = (b - f + 1) // 3
     h = (19 * a + b - d - g + 15) % 30
     i, k = divmod(c, 4)
-    l = (32 + 2 * e + 2 * i - h - k) % 7
-    m = (a + 11 * h + 22 * l) // 451
-    month = (h + l - 7 * m + 114) // 31
-    day = ((h + l - 7 * m + 114) % 31) + 1
+    ell = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * ell) // 451
+    month = (h + ell - 7 * m + 114) // 31
+    day = ((h + ell - 7 * m + 114) % 31) + 1
     return datetime.date(year, month, day)
 
 
@@ -306,12 +343,34 @@ def market_holidays(year):
         _nth_weekday(year, 2, 0, 3),                 # Presidents Day (Şubat 3. Pzt)
         _easter(year) - datetime.timedelta(days=2),  # Good Friday
         _last_weekday(year, 5, 0),                   # Memorial Day (Mayıs son Pzt)
+        _observed(year, 6, 19) if year >= 2022       # Juneteenth (2022'den beri)
+        else None,
+        _observed(year, 7, 4),                       # Bağımsızlık Günü
         _nth_weekday(year, 9, 0, 1),                 # Labor Day (Eylül 1. Pzt)
         _nth_weekday(year, 11, 3, 4),                # Thanksgiving (Kasım 4. Per)
         _observed(year, 12, 25),                     # Noel
     ]
-    if year >= 2022:                                 # Juneteenth 2022'den beri resmi
-        days.append(_observed(year, 6, 19))
+    return [d for d in days if d is not None]
+
+
+def is_market_holiday(day):
+    """Gün NYSE tatili mi?
+
+    Yılbaşı Cumartesi'ye denk gelince gözlenen tatil bir önceki yılın
+    31 Aralık'ına düşer; bu yüzden komşu yıl da kontrol edilir.
+    """
+    return day in market_holidays(day.year) or day in market_holidays(day.year + 1)
+
+
+def early_closes(year):
+    """NYSE erken kapanış (13:00 ET) günleri."""
+    holidays = set(market_holidays(year))
+    thanksgiving = _nth_weekday(year, 11, 3, 4)
+    days = {thanksgiving + datetime.timedelta(days=1)}
+    for month, day in ((7, 3), (12, 24)):
+        d = datetime.date(year, month, day)
+        if d.weekday() < 5 and d not in holidays:
+            days.add(d)
     return days
 
 
@@ -320,14 +379,16 @@ def market_phase(et=None):
     et = et or et_now()
     if et.weekday() >= 5:
         return None
-    if datetime.date(et.year, et.month, et.day) in market_holidays(et.year):
+    day = datetime.date(et.year, et.month, et.day)
+    if is_market_holiday(day):
         return None
     t = et.hour * 60 + et.minute
     if 4 * 60 <= t < 9 * 60 + 30:          # 04:00–09:30 ET öncesi seans
         return "pre"
-    if 9 * 60 + 30 <= t < 16 * 60:         # 09:30–16:00 ET normal seans
+    close = 13 * 60 if day in early_closes(day.year) else 16 * 60
+    if 9 * 60 + 30 <= t < close:           # normal seans (erken kapanışta 13:00)
         return "regular"
-    if 16 * 60 <= t < 20 * 60:             # 16:00–20:00 ET sonrası seans
+    if close <= t < 20 * 60:               # 16:00–20:00 ET sonrası seans
         return "post"
     return None
 
@@ -385,7 +446,7 @@ def trading_day(et=None):
     if et.hour * 60 + et.minute < 4 * 60:
         day -= datetime.timedelta(days=1)
     for _ in range(14):
-        if day.weekday() < 5 and day not in market_holidays(day.year):
+        if day.weekday() < 5 and not is_market_holiday(day):
             break
         day -= datetime.timedelta(days=1)
     return day
@@ -421,45 +482,141 @@ def _cfg_bool(cfg, key, default):
     return default
 
 
-def load_config():
-    cfg = {}
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-        except (OSError, ValueError):
-            cfg = {}
-    if not isinstance(cfg.get("symbols"), list) or not cfg["symbols"]:
-        cfg["symbols"] = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN"]
-    if cfg.get("theme") not in PALETTES:
-        cfg["theme"] = "gece"
+def _to_float(value):
+    """Gevşek sayı -> float; geçersiz/sonsuz değerde None."""
+    if value is None or isinstance(value, bool):
+        return None
     try:
-        cfg["opacity"] = min(1.0, max(0.6, float(cfg.get("opacity", 0.97))))
+        number = float(value)
     except (TypeError, ValueError):
-        cfg["opacity"] = 0.97
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _to_int(value, default=None):
+    """Gevşek sayı -> int; geçersiz değerde `default`."""
+    if isinstance(value, bool):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def clean_symbol(value):
+    """Tek sembolü doğrular: büyük harf, boşluksuz; geçersizse None."""
+    if not isinstance(value, str):
+        return None
+    sym = value.strip().upper()
+    if not sym or not SYMBOL_RE.match(sym):
+        return None
+    return sym
+
+
+def clean_symbols(value):
+    """Sembol listesini doğrular: string, büyük harf, tekrarsız, sınırlı."""
+    out = []
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            sym = clean_symbol(item)
+            if sym and sym not in out:
+                out.append(sym)
+    return out[:MAX_SYMBOLS] or list(DEFAULT_SYMBOLS)
+
+
+def clean_positions(value):
+    """Portföy kayıtlarını doğrular; geçersiz satırlar sessizce atılır."""
+    out = {}
+    if not isinstance(value, dict):
+        return out
+    for key, rec in value.items():
+        sym = clean_symbol(key)
+        if not sym or not isinstance(rec, dict):
+            continue
+        qty = _to_float(rec.get("qty"))
+        avg = _to_float(rec.get("avg"))
+        if qty is None or avg is None or qty <= 0 or avg < 0:
+            continue
+        out[sym] = {"qty": qty, "avg": avg}
+    return out
+
+
+def _read_config_file():
+    """config.json'ı okur; bozuksa `.bak` yedeğine düşer."""
+    global _CONFIG_FROM_BACKUP
+    for path in (CONFIG_FILE, CONFIG_FILE + ".bak"):
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8-sig") as f:
+                data = json.load(f)
+        except (OSError, ValueError) as exc:
+            log.warning("config okunamadı (%s): %s", path, exc)
+            continue
+        if not isinstance(data, dict):
+            log.warning("config kökü nesne değil (%s)", path)
+            continue
+        if path != CONFIG_FILE:
+            _CONFIG_FROM_BACKUP = True
+            log.warning("config bozuk; yedekten kurtarıldı")
+        return data
+    return {}
+
+
+def load_config():
+    cfg = dict(SETTINGS_DEFAULTS)
+    raw = _read_config_file()
+    if raw:
+        cfg.update(raw)
+    cfg["symbols"] = clean_symbols(cfg.get("symbols"))
+    if not isinstance(cfg.get("theme"), str) or cfg["theme"] not in PALETTES:
+        cfg["theme"] = SETTINGS_DEFAULTS["theme"]
+    opacity = _to_float(cfg.get("opacity"))
+    if opacity is None:
+        opacity = SETTINGS_DEFAULTS["opacity"]
+    cfg["opacity"] = min(1.0, max(0.6, opacity))
     if cfg.get("density") not in ("normal", "compact"):
-        cfg["density"] = "normal"
-    if not isinstance(cfg.get("positions"), dict):
-        cfg["positions"] = {}
+        cfg["density"] = SETTINGS_DEFAULTS["density"]
+    cfg["positions"] = clean_positions(cfg.get("positions"))
     cfg["always_on_top"] = _cfg_bool(cfg, "always_on_top", True)
     cfg["close_to_tray"] = _cfg_bool(cfg, "close_to_tray", True)
     cfg["pause_when_closed"] = _cfg_bool(cfg, "pause_when_closed", False)
     cfg["extended_hours"] = _cfg_bool(cfg, "extended_hours", True)
-    for key, default in (("refresh_open", 15), ("refresh_closed", 60)):
-        try:
-            minutes = int(cfg.get(key, default))
-        except (TypeError, ValueError):
-            minutes = default
+    for key in ("refresh_open", "refresh_closed"):
+        minutes = _to_int(cfg.get(key), SETTINGS_DEFAULTS[key])
         cfg[key] = min(1440, max(1, minutes))
+    for key in ("x", "y"):
+        cfg[key] = _to_int(cfg.get(key))
     return cfg
 
 
 def save_config(cfg):
+    """Ayarları atomik yazar: yazma kesilse bile eski dosya bozulmaz."""
+    global _CONFIG_FROM_BACKUP
+    tmp = CONFIG_FILE + ".tmp"
     try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        folder = os.path.dirname(CONFIG_FILE)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
-    except OSError:
-        pass
+            f.flush()
+            os.fsync(f.fileno())
+        if os.path.exists(CONFIG_FILE) and not _CONFIG_FROM_BACKUP:
+            try:
+                shutil.copy2(CONFIG_FILE, CONFIG_FILE + ".bak")
+            except OSError:
+                pass
+        os.replace(tmp, CONFIG_FILE)
+        _CONFIG_FROM_BACKUP = False
+        return True
+    except (OSError, TypeError, ValueError) as exc:
+        log.warning("config yazılamadı: %s", exc)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return False
 
 
 def fetch_quote(symbol, include_prepost=True):
@@ -467,12 +624,14 @@ def fetch_quote(symbol, include_prepost=True):
     resp = requests.get(url, headers=HEADERS, timeout=10)
     resp.raise_for_status()
     data = resp.json()
-    result = data["chart"]["result"]
-    if not result:
+    chart = (data or {}).get("chart") or {}
+    result = chart.get("result") or []
+    if not result or not isinstance(result[0], dict):
         raise ValueError("no data")
-    meta = result[0]["meta"]
-    price = meta.get("regularMarketPrice")
-    prev = meta.get("chartPreviousClose") or meta.get("previousClose")
+    meta = result[0].get("meta") or {}
+    price = _to_float(meta.get("regularMarketPrice"))
+    prev = (_to_float(meta.get("chartPreviousClose"))
+            or _to_float(meta.get("previousClose")))
     if price is None or not prev:
         raise ValueError("missing fields")
     # Aynı yanıttan detay alanları — ekstra istek yok
@@ -497,16 +656,20 @@ def fetch_quote(symbol, include_prepost=True):
 
     rows = []
     for i in range(n_raw):
-        c = arr["close"][i]
+        c = _to_float(arr["close"][i])
         if c is None:
             continue
-        o = _at("open", i)
-        h = _at("high", i)
-        lo_ = _at("low", i)
+        o = _to_float(_at("open", i))
         o = c if o is None else o
+        h = _to_float(_at("high", i))
+        lo_ = _to_float(_at("low", i))
         h = max(o, c, h if h is not None else o)
         lo_ = min(o, c, lo_ if lo_ is not None else o)
-        rows.append((stamps[i], c, o, h, lo_, _at("volume", i)))
+        rows.append((stamps[i], c, o, h, lo_, _to_float(_at("volume", i))))
+
+    if not include_prepost:
+        # Seans dışı kapalıyken PÖ/PS barları grafiğe karışmasın
+        rows = [r for r in rows if r[0] is None or bar_session(r[0]) is None]
 
     # Seans dışı (piyasa öncesi/sonrası) fiyat: grafiği besleyen son bar.
     # Böylece kart ve detaydaki fiyat, grafiğin bittiği noktayla birebir aynı
@@ -549,12 +712,12 @@ def fetch_quote(symbol, include_prepost=True):
         "ext_price": ext_price,
         "ext_change_pct": ext_pct,
         "ext_change_abs": ext_abs,
-        "open": float(opens[0]) if opens else None,
-        "day_high": float(day_high) if day_high else None,
-        "day_low": float(day_low) if day_low else None,
-        "high_52w": meta.get("fiftyTwoWeekHigh"),
-        "low_52w": meta.get("fiftyTwoWeekLow"),
-        "volume": volume,
+        "open": _to_float(opens[0]) if opens else None,
+        "day_high": _to_float(day_high),
+        "day_low": _to_float(day_low),
+        "high_52w": _to_float(meta.get("fiftyTwoWeekHigh")),
+        "low_52w": _to_float(meta.get("fiftyTwoWeekLow")),
+        "volume": _to_float(volume),
         "spark": closes,
         "spark_times": spark_times,
         "spark_volumes": spark_volumes,
@@ -1022,6 +1185,7 @@ TF_LABEL = {"1D": "1G", "1H": "1H", "1A": "1A", "1Y": "1Y"}
 TF_TABS = ("1D", "1H", "1A", "1Y")
 
 _SERIES_CACHE = {}
+SERIES_CACHE_MAX = 32
 
 
 def fetch_series(symbol, tf):
@@ -1035,10 +1199,13 @@ def fetch_series(symbol, tf):
     resp = requests.get(SERIES_URL.format(s=symbol, r=rng, i=interval),
                         headers=HEADERS, timeout=10)
     resp.raise_for_status()
-    res = resp.json()["chart"]["result"][0]
+    result = ((resp.json() or {}).get("chart") or {}).get("result") or []
+    if not result or not isinstance(result[0], dict):
+        raise ValueError("empty series")
+    res = result[0]
     stamps = res.get("timestamp") or []
     quote = (res.get("indicators") or {}).get("quote") or [{}]
-    q = quote[0]
+    q = quote[0] if isinstance(quote[0], dict) else {}
     raw = {
         "close": q.get("close") or [],
         "open": q.get("open") or [],
@@ -1055,16 +1222,16 @@ def fetch_series(symbol, tf):
 
     pts = []
     for i in range(n_raw):
-        c = raw["close"][i]
+        c = _to_float(raw["close"][i])
         if c is None:
             continue
-        o = _at("open", i)
-        h = _at("high", i)
-        lo_ = _at("low", i)
+        o = _to_float(_at("open", i))
         o = c if o is None else o
+        h = _to_float(_at("high", i))
+        lo_ = _to_float(_at("low", i))
         h = max(o, c, h if h is not None else o)
         lo_ = min(o, c, lo_ if lo_ is not None else o)
-        pts.append((stamps[i], c, o, h, lo_, _at("volume", i)))
+        pts.append((stamps[i], c, o, h, lo_, _to_float(_at("volume", i))))
     if len(pts) < 2:
         raise ValueError("empty series")
     if len(pts) > 150:
@@ -1077,8 +1244,19 @@ def fetch_series(symbol, tf):
         "volumes": [p[5] or 0 for p in pts],
         "ohlc": [(p[2], p[3], p[4], p[1]) for p in pts],
     }
+    if len(_SERIES_CACHE) >= SERIES_CACHE_MAX:
+        _SERIES_CACHE.clear()
     _SERIES_CACHE[key] = (now, data)
     return data
+
+
+def _retry_after(response, default=THROTTLE_429):
+    """429 yanıtındaki Retry-After başlığını saniyeye çevirir."""
+    try:
+        value = response.headers.get("Retry-After")
+        return min(3600, max(60, int(float(value))))
+    except (AttributeError, TypeError, ValueError):
+        return default
 
 
 class DetailPanel:
@@ -1092,6 +1270,7 @@ class DetailPanel:
         self._closed = False
         self.tf = "1D"
         self.series = {}
+        self.series_ts = {}
         self.errors = set()
         self.loading = None
         self.mode = "line"
@@ -1188,19 +1367,26 @@ class DetailPanel:
         if self._closed:
             return
         old = self.tf
+        stale = tf in self.series and self._series_stale(tf)
         if tf == self.tf:
-            # Aynı sekme: yüklü ya da yükleniyorsa yapacak bir şey yok;
-            # hata aldıysa aşağıda yeniden dener.
-            if tf == "1D" or tf in self.series or self.loading == tf:
+            # Aynı sekme: taze ya da yükleniyorsa yapacak bir şey yok;
+            # bayatladıysa aşağıda tazelenir.
+            if (tf == "1D" or (tf in self.series and not stale)
+                    or self.loading == tf):
                 return
         self.tf = tf
         self.errors.discard(tf)
-        if tf != "1D" and tf not in self.series:
+        if tf != "1D" and (tf not in self.series or stale):
             self.loading = tf
             threading.Thread(target=self._fetch_series, args=(tf,),
                              daemon=True).start()
         self.render()
         self._animate_pill(old)
+
+    def _series_stale(self, tf):
+        """Önbellekteki seri TTL'i geçtiyse tazelenmeli."""
+        ts = self.series_ts.get(tf)
+        return ts is None or time.time() - ts > TF_TTL.get(tf, 0)
 
     def _animate_pill(self, old_tf):
         """Etkin sekme vurgusu eski sekmeden yenisine kayar."""
@@ -1246,6 +1432,7 @@ class DetailPanel:
                     self.errors.add(tf)
                 else:
                     self.series[tf] = data
+                    self.series_ts[tf] = time.time()
                     self.errors.discard(tf)
                 if self.tf == tf:
                     self.render()
@@ -1745,7 +1932,6 @@ class StockWidget:
         self.queue = queue.Queue()
         self.wake = threading.Event()
         self.stop_flag = threading.Event()
-        self.last_ok = None
         self.tray_icon = None
         self._editor = None
         self._detail = None
@@ -1949,32 +2135,42 @@ class StockWidget:
 
     def _has_portfolio(self):
         pos = self.cfg.get("positions") or {}
-        return any(isinstance(p, dict) and (p.get("qty") or 0) > 0
-                   for p in pos.values())
+        if not isinstance(pos, dict):
+            return False
+        for rec in pos.values():
+            if not isinstance(rec, dict):
+                continue
+            qty = _to_float(rec.get("qty"))
+            if qty is not None and qty > 0:
+                return True
+        return False
 
     def _portfolio_stats(self):
         pos = self.cfg.get("positions") or {}
         val = cost = day = 0.0
         ok = False
         cur = None
+        mixed = False
         for sym, p in pos.items():
             if not isinstance(p, dict):
                 continue
-            try:
-                qty = float(p.get("qty") or 0)
-                avg = float(p.get("avg") or 0)
-            except (TypeError, ValueError):
+            qty = _to_float(p.get("qty"))
+            avg = _to_float(p.get("avg"))
+            if qty is None or avg is None:
                 continue
             info = self.last.get(sym)
             if qty <= 0 or not info:
                 continue
             ok = True
+            sym_cur = info.get("currency")
             if cur is None:
-                cur = info.get("currency")
+                cur = sym_cur
+            elif sym_cur and cur and sym_cur != cur:
+                mixed = True
             val += qty * info["price"]
             cost += qty * avg
             day += qty * (info["price"] - info["prev_close"])
-        return ok, val, cost, day, cur
+        return ok, val, cost, day, cur, mixed
 
     def _draw_portfolio(self, y):
         c = self.canvas
@@ -1985,10 +2181,16 @@ class StockWidget:
                          self.s(9), fill=RAISED, tags=("pf",))
         c.create_text(self.PAD, mid, text="Portföy", anchor="w", fill=MUTED,
                       font=("Segoe UI", 7), tags=("pf",))
-        ok, val, cost, day, cur = self._portfolio_stats()
+        ok, val, cost, day, cur, mixed = self._portfolio_stats()
         if not ok:
             c.create_text(w - self.PAD, mid, text="adet gir", anchor="e",
                           fill=DIM, font=("Segoe UI", 7), tags=("pf",))
+            return
+        if mixed:
+            # Farklı para birimlerini toplamak yanlış sonuç verir
+            c.create_text(w - self.PAD, mid, text="farklı para birimi",
+                          anchor="e", fill=AMBER, font=("Segoe UI", 7),
+                          tags=("pf",))
             return
         base = val - day
         pct = (day / base * 100.0) if base else 0.0
@@ -2110,13 +2312,16 @@ class StockWidget:
             self.close_detail()
 
     def _restore_position(self):
-        sm = ctypes.windll.user32.GetSystemMetrics
-        sw, sh = sm(0), sm(1)
         W, H = self.W, self._row_height()
-        x = self.cfg.get("x", sw - W - self.s(24))
-        y = self.cfg.get("y", sh - H - self.s(60))
-        x = max(-40, min(x, sw - self.s(80)))
-        y = max(0, min(y, sh - self.s(40)))
+        vx, vy, vw, vh = virtual_screen()
+        x = self.cfg.get("x")
+        y = self.cfg.get("y")
+        if x is None:
+            x = vx + vw - W - self.s(24)
+        if y is None:
+            y = vy + vh - H - self.s(60)
+        x, y = clamp_to_screen(x, y, W, H)
+        self.cfg["x"], self.cfg["y"] = x, y
         self.root.geometry("%dx%d+%d+%d" % (W, H, x, y))
 
     def _render_row(self, sym, info):
@@ -2130,7 +2335,6 @@ class StockWidget:
         up = pct >= 0
         col = GREEN if up else RED
         bg = GREEN_DIM if up else RED_DIM
-        spark_col = col
         price_val = info["price"]
         # Seans dışı (piyasa öncesi/sonrası) veri varsa onu göster
         ext = (info.get("ext_session")
@@ -2146,6 +2350,8 @@ class StockWidget:
             txt = "%s %s %+.2f%%" % (label, "▲" if up else "▼", pct)
         else:
             txt = ("▲ " if up else "▼ ") + "%+.2f%%" % pct
+        # sparkline rozetin (PÖ/PS dahil) rengini izler
+        spark_col = col
         price_txt = fmt_money(price_val, info.get("currency"))
         c.itemconfig(it["price"], text=price_txt,
                      fill=MUTED if self.offline else FG)
@@ -2221,9 +2427,15 @@ class StockWidget:
             dot = DIM
         try:
             c.itemconfig(self.dot_id, fill=dot)
-            c.itemconfig(self.phase_id, text=(
-                SESSION_LABEL.get(phase, "")
-                if self.cfg.get("extended_hours", True) else ""))
+            if not self.cfg.get("extended_hours", True):
+                label = ""
+            elif phase in SESSION_LABEL:
+                label = SESSION_LABEL[phase]
+            elif phase is None:
+                label = "kapalı"
+            else:
+                label = ""
+            c.itemconfig(self.phase_id, text=label)
             c.itemconfig(self.time_id, text=datetime.datetime.now().strftime("%H:%M"))
             c.itemconfig(self.upd_id, text=(
                 "çevrimdışı · deneniyor…" if self.offline
@@ -2263,10 +2475,7 @@ class StockWidget:
         x = self.root.winfo_pointerx() - self._dx
         y = self.root.winfo_pointery() - self._dy
         try:
-            sm = ctypes.windll.user32.GetSystemMetrics
-            sw, sh = sm(0), sm(1)
-            x = max(-40, min(x, sw - self.s(80)))
-            y = max(0, min(y, sh - self.s(40)))
+            x, y = clamp_to_screen(x, y, self.W, self.root.winfo_height())
         except Exception:
             pass
         self.root.geometry("+%d+%d" % (x, y))
@@ -2464,11 +2673,16 @@ class StockWidget:
                 self.refresh_now()
 
         def do_add(event=None):
-            sym = entry.get().strip().upper()
+            sym = clean_symbol(entry.get())
             if not sym:
+                status.config(text="Geçerli bir ticker yaz (örn. AAPL).", fg=AMBER)
                 return
             if sym in self.cfg["symbols"]:
                 status.config(text="%s zaten listede." % sym, fg=AMBER)
+                return
+            if len(self.cfg["symbols"]) >= MAX_SYMBOLS:
+                status.config(text="Liste dolu (en fazla %d sembol)." % MAX_SYMBOLS,
+                              fg=AMBER)
                 return
             # Doğrulama ağ isteği ana thread'i dondurmasın: ayrı thread'de çalışır,
             # sonuç root.after ile ana thread'e döner.
@@ -3473,56 +3687,77 @@ class StockWidget:
             return default
 
     def fetch_loop(self):
+        """Veri döngüsü: tek bir hata döngüyü kalıcı olarak durdurmamalı."""
         while not self.stop_flag.is_set():
-            extended = self.cfg.get("extended_hours", True)
-            is_open = market_active() if extended else market_open()
-            if (not is_open and self.cfg.get("pause_when_closed")
-                    and not self._force_refresh):
-                # Piyasa kapalı ve yenileme duraklatıldı: ağ isteği yok,
-                # yalnızca açılışı yakalamak için saat kontrol edilir.
-                self.wake.wait(PAUSE_POLL)
-                self.wake.clear()
-                continue
-            self._force_refresh = False
-            symbols = list(self.cfg["symbols"])
-            if not symbols:
-                # Boş liste: sadece bekle, çevrimdışı sayma
-                self.queue.put(({}, False))
-                self.wake.wait(self._refresh_minutes(False) * 60)
-                self.wake.clear()
-                continue
-            results = {}
-            failures = 0
-            for i, sym in enumerate(symbols):
-                if self.stop_flag.is_set():
-                    return
-                if i:
-                    time.sleep(0.4)
+            try:
+                delay = self._fetch_cycle()
+            except Exception:
+                log.exception("veri döngüsü hatası; yeniden denenecek")
                 try:
-                    results[sym] = fetch_quote(sym, extended)
-                except requests.exceptions.HTTPError as exc:
-                    if exc.response is not None and exc.response.status_code == 429:
-                        time.sleep(THROTTLE_429)
-                    failures += 1
+                    self.queue.put(({}, True))
                 except Exception:
-                    failures += 1
-            if failures:
-                log.warning("fetch: %d/%d sembol başarısız",
-                            failures, len(symbols))
-            extended = self.cfg.get("extended_hours", True)
-            is_open = market_active() if extended else market_open()
-            interval = self._refresh_minutes(is_open) * 60
-            offline = failures == len(symbols) and not results
-            if failures and not results:
-                interval = INTERVAL_RETRY
-                if self.last_ok is not None:
-                    offline = True
-            if results:
-                self.last_ok = True
-                offline = False
-            self.queue.put((results, offline))
-            self.wake.wait(interval)
+                    pass
+                delay = INTERVAL_RETRY
+            self.wake.wait(delay)
             self.wake.clear()
+
+    def _fetch_cycle(self):
+        """Bir tur veri çeker ve bir sonraki turun gecikmesini döndürür."""
+        extended = self.cfg.get("extended_hours", True)
+        is_open = market_active() if extended else market_open()
+        if (not is_open and self.cfg.get("pause_when_closed")
+                and not self._force_refresh):
+            # Piyasa kapalı ve yenileme duraklatıldı: ağ isteği yok,
+            # yalnızca açılışı yakalamak için saat kontrol edilir.
+            return PAUSE_POLL
+        self._force_refresh = False
+        symbols = list(self.cfg.get("symbols") or [])
+        if not symbols:
+            # Boş liste: sadece bekle, çevrimdışı sayma
+            self.queue.put(({}, False))
+            return self._refresh_minutes(False) * 60
+        results, failures, attempted, backoff = self._fetch_symbols(
+            symbols, extended)
+        if failures:
+            log.warning("fetch: %d/%d sembol başarısız", failures, attempted)
+        if backoff:
+            # 429: kalan sembolleri de zorlamak durumu kötüleştirir
+            self.queue.put((results, not results))
+            return backoff
+        is_open = market_active() if extended else market_open()
+        interval = self._refresh_minutes(is_open) * 60
+        offline = bool(attempted) and not results
+        if offline:
+            interval = INTERVAL_RETRY
+        self.queue.put((results, offline))
+        return interval
+
+    def _fetch_symbols(self, symbols, extended):
+        """Sembolleri sırayla çeker; 429 gelirse kalanları atlar."""
+        results = {}
+        failures = attempted = 0
+        backoff = None
+        for i, sym in enumerate(symbols):
+            if self.stop_flag.is_set():
+                break
+            if i and self.stop_flag.wait(0.4):
+                break
+            attempted += 1
+            try:
+                results[sym] = fetch_quote(sym, extended)
+            except requests.exceptions.HTTPError as exc:
+                failures += 1
+                response = getattr(exc, "response", None)
+                status = getattr(response, "status_code", 0)
+                if status == 429:
+                    backoff = _retry_after(response)
+                    log.warning("429: kalan semboller atlandı (%s sn)", backoff)
+                    break
+                log.warning("%s: HTTP %s", sym, status)
+            except Exception as exc:
+                failures += 1
+                log.warning("%s: %s", sym, exc)
+        return results, failures, attempted, backoff
 
     # ---------- tray ----------
 
@@ -3657,8 +3892,11 @@ class StockWidget:
 
     def hide_window(self):
         self.close_detail(animate=False)
-        dlg = self._settings_dlg
-        if dlg is not None:
+        # Ana pencere gizlenirken açık pencereler tek başına kalmasın
+        for attr in ("_settings_dlg", "_portfolio_dlg", "_editor"):
+            dlg = getattr(self, attr, None)
+            if dlg is None:
+                continue
             try:
                 dlg.destroy()
             except tk.TclError:

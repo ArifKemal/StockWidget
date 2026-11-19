@@ -1,9 +1,14 @@
 """StockWidget için hızlı birim testleri (stdlib unittest)."""
+import calendar
 import datetime
 import json
+import logging
 import os
 import tempfile
+import threading
+import time
 import unittest
+from unittest import mock
 
 import stock_widget as sw
 
@@ -292,10 +297,10 @@ class _FakeCanvas:
         self.items = []
         self._id = 0
 
-    def _add(self, kind, tags):
+    def _add(self, kind, tags, opts=None):
         self._id += 1
         self.items.append({"id": self._id, "kind": kind,
-                           "tags": tuple(tags or ())})
+                           "tags": tuple(tags or ()), "opts": dict(opts or {})})
         return self._id
 
     def delete(self, tag):
@@ -306,22 +311,22 @@ class _FakeCanvas:
         pass
 
     def create_text(self, *args, **kwargs):
-        return self._add("text", kwargs.get("tags"))
+        return self._add("text", kwargs.get("tags"), kwargs)
 
     def create_rectangle(self, *args, **kwargs):
-        return self._add("rect", kwargs.get("tags"))
+        return self._add("rect", kwargs.get("tags"), kwargs)
 
     def create_arc(self, *args, **kwargs):
-        return self._add("arc", kwargs.get("tags"))
+        return self._add("arc", kwargs.get("tags"), kwargs)
 
     def create_line(self, *args, **kwargs):
-        return self._add("line", kwargs.get("tags"))
+        return self._add("line", kwargs.get("tags"), kwargs)
 
     def create_oval(self, *args, **kwargs):
-        return self._add("oval", kwargs.get("tags"))
+        return self._add("oval", kwargs.get("tags"), kwargs)
 
     def create_image(self, *args, **kwargs):
-        return self._add("image", kwargs.get("tags"))
+        return self._add("image", kwargs.get("tags"), kwargs)
 
 
 class RowRenderTest(unittest.TestCase):
@@ -335,6 +340,7 @@ class RowRenderTest(unittest.TestCase):
         w.W = 300
         w.PAD = 10
         w.offline = False
+        w.S = 1.0
         w._row_photos = {}
         w.font_pct = _StubFont()
         w.font_name = _StubFont()
@@ -364,6 +370,30 @@ class RowRenderTest(unittest.TestCase):
         self.assertEqual(len(w.canvas.items), first)
         for it in w.canvas.items:
             self.assertIn("row_AAA", it["tags"])
+
+    def test_spark_color_follows_ext_session(self):
+        """PÖ/PS rozeti kırmızıysa sparkline da kırmızı olmalı."""
+        w = self._widget()
+        with mock.patch.object(sw, "PIL_AVAILABLE", False):
+            w._render_row("AAA", self._info(change_pct=3.0,
+                                            ext_change_pct=-1.5,
+                                            ext_price=4.0,
+                                            spark=[1, 2, 3]))
+        lines = [it for it in w.canvas.items
+                 if it["kind"] == "line" and it["tags"] == ("row_AAA",)]
+        self.assertTrue(lines)
+        self.assertEqual(lines[-1]["opts"]["fill"], sw.RED)
+
+    def test_spark_color_follows_regular_session(self):
+        w = self._widget()
+        with mock.patch.object(sw, "PIL_AVAILABLE", False):
+            w._render_row("AAA", self._info(change_pct=3.0,
+                                            ext_change_pct=-1.5,
+                                            ext_session=None,
+                                            spark=[1, 2, 3]))
+        lines = [it for it in w.canvas.items
+                 if it["kind"] == "line" and it["tags"] == ("row_AAA",)]
+        self.assertEqual(lines[-1]["opts"]["fill"], sw.GREEN)
 
 
 class ConfigTest(unittest.TestCase):
@@ -416,6 +446,330 @@ class ConfigTest(unittest.TestCase):
         self.assertTrue(cfg["pause_when_closed"])
         self.assertEqual(cfg["refresh_open"], 15)
         self.assertEqual(cfg["refresh_closed"], 1440)
+
+
+class HelperValidationTest(unittest.TestCase):
+    def test_clean_symbol(self):
+        for raw, want in (("aapl", "AAPL"), (" brk-b ", "BRK-B"),
+                          ("^gspc", "^GSPC"), ("es=f", "ES=F"),
+                          ("BTC-USD", "BTC-USD")):
+            self.assertEqual(sw.clean_symbol(raw), want)
+        for bad in ("", "   ", None, 1, ["A"], "A B", "TOOLONGSYMBOL"):
+            self.assertIsNone(sw.clean_symbol(bad), bad)
+
+    def test_clean_symbols(self):
+        self.assertEqual(sw.clean_symbols(["aapl", "AAPL", 1, None, ""]),
+                         ["AAPL"])
+        self.assertEqual(sw.clean_symbols("nope"), sw.DEFAULT_SYMBOLS)
+        self.assertEqual(sw.clean_symbols([]), sw.DEFAULT_SYMBOLS)
+        many = ["S%d" % i for i in range(40)]
+        self.assertEqual(len(sw.clean_symbols(many)), sw.MAX_SYMBOLS)
+
+    def test_clean_positions(self):
+        out = sw.clean_positions({
+            "aapl": {"qty": "10", "avg": "150"},
+            "BAD SYM": {"qty": 1, "avg": 1},
+            "NEG": {"qty": -1, "avg": 5},
+            "ZERO": {"qty": 0, "avg": 5},
+            "LIST": [1, 2],
+        })
+        self.assertEqual(out, {"AAPL": {"qty": 10.0, "avg": 150.0}})
+        self.assertEqual(sw.clean_positions([]), {})
+
+    def test_portfolio_stats_string_qty(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.cfg = {"positions": {"AAPL": {"qty": "10", "avg": "150"}}}
+        self.assertTrue(app._has_portfolio())
+        app.cfg = {"positions": {"AAPL": {"qty": -1, "avg": 1}}}
+        self.assertFalse(app._has_portfolio())
+        app.cfg = {"positions": {"AAPL": [1, 2]}}
+        self.assertFalse(app._has_portfolio())
+
+    def test_portfolio_stats_mixed_currency(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.cfg = {"positions": {"AAPL": {"qty": 2, "avg": 100},
+                                 "SAP": {"qty": 1, "avg": 100}}}
+        app.last = {"AAPL": {"price": 110.0, "prev_close": 100.0,
+                             "currency": "USD"},
+                    "SAP": {"price": 120.0, "prev_close": 100.0,
+                            "currency": "EUR"}}
+        ok, val, cost, day, cur, mixed = app._portfolio_stats()
+        self.assertTrue(ok)
+        self.assertTrue(mixed)
+        self.assertEqual(cur, "USD")
+        self.assertAlmostEqual(val, 340.0)
+        self.assertAlmostEqual(day, 40.0)
+
+
+class HolidayCalendarTest(unittest.TestCase):
+    def test_independence_day(self):
+        # 4 Temmuz 2026 Cumartesi -> 3 Temmuz Cuma gözlenir
+        self.assertIn(datetime.date(2026, 7, 3), sw.market_holidays(2026))
+        # 2027 Pazar -> Pazartesi
+        self.assertIn(datetime.date(2027, 7, 5), sw.market_holidays(2027))
+        self.assertIn(datetime.date(2025, 7, 4), sw.market_holidays(2025))
+
+    def test_new_year_spills_to_previous_year(self):
+        # 1 Ocak 2022 Cumartesi -> 31 Aralık 2021 kapalı
+        self.assertIn(datetime.date(2021, 12, 31), sw.market_holidays(2022))
+        self.assertTrue(sw.is_market_holiday(datetime.date(2021, 12, 31)))
+        self.assertIsNone(sw.market_phase(datetime.datetime(2021, 12, 31, 11, 0)))
+
+    def test_holiday_phase_closed(self):
+        self.assertIsNone(sw.market_phase(datetime.datetime(2026, 7, 3, 10, 0)))
+        self.assertIsNone(sw.market_phase(datetime.datetime(2026, 12, 25, 10, 0)))
+
+    def test_early_close(self):
+        closes = sw.early_closes(2026)
+        self.assertIn(datetime.date(2026, 11, 27), closes)   # Şükran sonrası
+        self.assertIn(datetime.date(2026, 12, 24), closes)   # Noel arifesi
+        self.assertNotIn(datetime.date(2026, 7, 3), closes)  # tatil günü
+        # 13:05'te normal seans bitmiş olmalı
+        self.assertEqual(sw.market_phase(datetime.datetime(2026, 11, 27, 13, 5)),
+                         "post")
+        self.assertEqual(sw.market_phase(datetime.datetime(2026, 11, 27, 12, 59)),
+                         "regular")
+
+    def test_holiday_properties(self):
+        for year in range(2000, 2101):
+            days = sw.market_holidays(year)
+            self.assertEqual(len(days), len(set(days)), year)
+            for d in days:
+                self.assertLess(d.weekday(), 5, "%s %s" % (year, d))
+            expected = 10 if year >= 2022 else 9
+            self.assertEqual(len(days), expected, year)
+
+
+class ConfigRobustnessTest(unittest.TestCase):
+    """Bozuk config uygulamayı kilitlememeli; yazma atomik olmalı."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="swcfg-")
+        self.old = sw.CONFIG_FILE
+        sw.CONFIG_FILE = os.path.join(self.dir, "config.json")
+        sw._CONFIG_FROM_BACKUP = False
+        self._log_level = sw.log.level
+        sw.log.setLevel(logging.CRITICAL)
+
+    def tearDown(self):
+        sw.log.setLevel(self._log_level)
+        sw.CONFIG_FILE = self.old
+        sw._CONFIG_FROM_BACKUP = False
+        for name in os.listdir(self.dir):
+            os.unlink(os.path.join(self.dir, name))
+        os.rmdir(self.dir)
+
+    def _write(self, payload, path=None, raw=None):
+        path = path or sw.CONFIG_FILE
+        with open(path, "w", encoding="utf-8") as f:
+            if raw is not None:
+                f.write(raw)
+            else:
+                json.dump(payload, f)
+
+    def test_payload_fuzz_never_raises(self):
+        payloads = [
+            [], None, 5, "metin", {"theme": []}, {"theme": {}},
+            {"x": "abc", "y": "abc"}, {"x": [], "y": {}},
+            {"symbols": [1, None, "aapl", "", "AAPL"]},
+            {"positions": {"A": {"qty": "5"}}},
+            {"positions": {"A": [1]}}, {"positions": []},
+            {"opacity": []}, {"density": []}, {"refresh_open": []},
+            {"extended_hours": []},
+        ]
+        for payload in payloads:
+            self._write(payload)
+            cfg = sw.load_config()
+            self.assertIsInstance(cfg, dict)
+            self.assertIsInstance(cfg["symbols"], list)
+            self.assertTrue(all(isinstance(x, str) for x in cfg["symbols"]))
+            self.assertIsInstance(cfg["positions"], dict)
+            self.assertIn(cfg["theme"], sw.PALETTES)
+            self.assertIsNone(cfg["x"])
+
+    def test_bom_and_truncated_file(self):
+        self._write(None, raw="\ufeff" + json.dumps({"theme": "slate"}))
+        self.assertEqual(sw.load_config()["theme"], "slate")
+        self._write(None, raw='{"theme": "sl')
+        self.assertEqual(sw.load_config()["theme"], "gece")
+
+    def test_backup_recovery(self):
+        self._write({"theme": "slate", "symbols": ["ONS"]},
+                    path=sw.CONFIG_FILE + ".bak")
+        self._write(None, raw="{ bozuk")
+        cfg = sw.load_config()
+        self.assertEqual(cfg["theme"], "slate")
+        self.assertEqual(cfg["symbols"], ["ONS"])
+        self.assertTrue(sw._CONFIG_FROM_BACKUP)
+
+    def test_save_is_atomic_and_keeps_backup(self):
+        self.assertTrue(sw.save_config({"theme": "gece"}))
+        self.assertTrue(sw.save_config({"theme": "slate"}))
+        with open(sw.CONFIG_FILE, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["theme"], "slate")
+        with open(sw.CONFIG_FILE + ".bak", encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["theme"], "gece")
+
+    def test_save_failure_keeps_old_file(self):
+        self.assertTrue(sw.save_config({"theme": "gece"}))
+        with mock.patch.object(sw.os, "replace", side_effect=OSError("disk")):
+            self.assertFalse(sw.save_config({"theme": "slate"}))
+        with open(sw.CONFIG_FILE, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["theme"], "gece")
+
+    def test_save_does_not_clobber_backup_after_recovery(self):
+        self._write({"theme": "slate"}, path=sw.CONFIG_FILE + ".bak")
+        self._write(None, raw="{ bozuk")
+        cfg = sw.load_config()
+        self.assertTrue(sw._CONFIG_FROM_BACKUP)
+        sw.save_config(cfg)
+        with open(sw.CONFIG_FILE + ".bak", encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["theme"], "slate")
+
+
+class _Resp:
+    def __init__(self, payload=None, status=200, headers=None):
+        self._payload = payload
+        self.status_code = status
+        self.headers = headers or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise sw.requests.exceptions.HTTPError(
+                "HTTP %s" % self.status_code, response=self)
+
+    def json(self):
+        return self._payload
+
+
+def _chart_payload(closes, stamps, price=1.0, prev=1.0):
+    return {"chart": {"result": [{
+        "meta": {"regularMarketPrice": price, "chartPreviousClose": prev,
+                 "currency": "USD", "shortName": "Test"},
+        "timestamp": stamps,
+        "indicators": {"quote": [{
+            "close": closes, "open": list(closes),
+            "high": list(closes), "low": list(closes),
+            "volume": [1] * len(closes),
+        }]},
+    }]}}
+
+
+class QuoteParsingTest(unittest.TestCase):
+    def _fetch(self, payload, include_prepost=False, status=200):
+        with mock.patch.object(sw.requests, "get",
+                               return_value=_Resp(payload, status)):
+            return sw.fetch_quote("TEST", include_prepost)
+
+    def test_empty_result(self):
+        with self.assertRaises(ValueError):
+            self._fetch({"chart": {"result": []}})
+        with self.assertRaises(ValueError):
+            self._fetch({"chart": None})
+        with self.assertRaises(ValueError):
+            self._fetch({})
+
+    def test_missing_meta_fields(self):
+        payload = _chart_payload([1.0], [0])
+        del payload["chart"]["result"][0]["meta"]["regularMarketPrice"]
+        with self.assertRaises(ValueError):
+            self._fetch(payload)
+
+    def test_string_and_null_values_are_coerced(self):
+        stamps = [calendar.timegm(datetime.datetime(2026, 11, 18, h).timetuple())
+                  for h in (15, 16, 17)]
+        payload = _chart_payload(["5", None, "6"], stamps, "6", "5")
+        info = self._fetch(payload)
+        self.assertEqual(info["price"], 6.0)
+        self.assertEqual(info["prev_close"], 5.0)
+        self.assertEqual(len(info["spark"]), 2)
+        self.assertAlmostEqual(info["change_pct"], 20.0)
+
+    def test_include_prepost_filters_session_bars(self):
+        # UTC: pre 10:00, regular 15:00, post 22:00 (18 Kasım 2026, EST)
+        stamps = [calendar.timegm(datetime.datetime(2026, 11, 18, h).timetuple())
+                  for h in (10, 15, 22)]
+        payload = _chart_payload([1.0, 2.0, 3.0], stamps, 3.0, 1.0)
+        with_pre = self._fetch(payload, include_prepost=True)
+        self.assertEqual(with_pre["ext_session"], "post")
+        self.assertEqual(with_pre["ext_price"], 3.0)
+        self.assertEqual(len(with_pre["spark"]), 3)
+        without = self._fetch(payload, include_prepost=False)
+        self.assertIsNone(without["ext_session"])
+        self.assertEqual(len(without["spark"]), 1)
+        self.assertEqual(without["spark"], [2.0])
+
+    def test_retry_after(self):
+        self.assertEqual(sw._retry_after(_Resp(headers={"Retry-After": "120"})),
+                         120)
+        self.assertEqual(sw._retry_after(_Resp(headers={"Retry-After": "1"})),
+                         60)
+        self.assertEqual(sw._retry_after(_Resp(headers={"Retry-After": "x"})),
+                         sw.THROTTLE_429)
+        self.assertEqual(sw._retry_after(None), sw.THROTTLE_429)
+
+
+class FetchLoopTest(unittest.TestCase):
+    def _app(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.stop_flag = threading.Event()
+        return app
+
+    def test_429_skips_rest_and_backs_off(self):
+        calls = []
+
+        def fake(sym, extended=True):
+            calls.append(sym)
+            if sym == "A":
+                raise sw.requests.exceptions.HTTPError(
+                    "429", response=_Resp(status=429,
+                                          headers={"Retry-After": "180"}))
+            return {"symbol": sym}
+
+        with mock.patch.object(sw, "fetch_quote", side_effect=fake):
+            results, failures, attempted, backoff = self._app()._fetch_symbols(
+                ["A", "B", "C"], True)
+        self.assertEqual(calls, ["A"])
+        self.assertEqual(results, {})
+        self.assertEqual(failures, 1)
+        self.assertEqual(attempted, 1)
+        self.assertEqual(backoff, 180)
+
+    def test_failures_do_not_stop_the_loop(self):
+        def fake(sym, extended=True):
+            if sym == "B":
+                raise ValueError("bozuk")
+            return {"symbol": sym}
+
+        with mock.patch.object(sw, "fetch_quote", side_effect=fake):
+            results, failures, attempted, backoff = self._app()._fetch_symbols(
+                ["A", "B", "C"], True)
+        self.assertEqual(sorted(results), ["A", "C"])
+        self.assertEqual((failures, attempted, backoff), (1, 3, None))
+
+
+class VersionSyncTest(unittest.TestCase):
+    def test_version_files_match(self):
+        root = os.path.dirname(os.path.abspath(sw.__file__))
+        with open(os.path.join(root, "version_info.txt"), encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("filevers=(%s)" % ", ".join(
+            (sw.APP_VERSION.split(".") + ["0", "0", "0"])[:4]), text)
+        with open(os.path.join(root, "installer.iss"), encoding="utf-8") as f:
+            iss = f.read()
+        self.assertIn('#define MyAppVersion "%s"' % sw.APP_VERSION, iss)
+
+
+class DetailSeriesTest(unittest.TestCase):
+    def test_staleness(self):
+        panel = sw.DetailPanel.__new__(sw.DetailPanel)
+        panel.series = {"1H": {}}
+        panel.series_ts = {}
+        self.assertTrue(panel._series_stale("1H"))
+        panel.series_ts["1H"] = time.time()
+        self.assertFalse(panel._series_stale("1H"))
+        panel.series_ts["1H"] = time.time() - sw.TF_TTL["1H"] - 1
+        self.assertTrue(panel._series_stale("1H"))
 
 
 if __name__ == "__main__":

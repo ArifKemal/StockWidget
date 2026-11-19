@@ -4,6 +4,9 @@ __pycache__/
 sw.log
 sw.log.*
 config.json
+config.json.bak
+config.json.tmp
+.coverage
 _hover_preview.png
 
 # Derleme çıktıları

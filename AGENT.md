@@ -74,9 +74,14 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 ## Veri ve API disiplini (ücretsiz endpoint, 429 riski)
 - Sembol başına döngüde **1 istek**; semboller arasında 0.4 s bekleme.
 - Aralıklar: piyasa açık 15 dk, kapalı 60 dk (Ayarlar'dan 5–30 / 15–120 dk);
-  hata sonrası 90 s; HTTP 429 → 5 dk bekleme. `pause_when_closed` açıksa piyasa
+  hata sonrası 90 s. HTTP 429 → `Retry-After` (60–3600 s; yoksa 300 s) beklenir
+  ve kalan semboller atlanır. `pause_when_closed` açıksa piyasa
   kapalıyken hiç istek gönderilmez, yalnızca 60 s'de bir saat kontrol edilir.
-- Endpoint: `query1.finance.yahoo.com/v8/finance/chart/{sembol}?range=1d&interval=5m`.
+- Endpoint: `query1.finance.yahoo.com/v8/finance/chart/{sembol}?interval=5m`
+  + açık `period1`/`period2` (aktif işlem gününün 04:00–20:05 ET penceresi).
+  `range=1d` piyasa öncesi saatlerde önceki seansa düşebildiği için kullanılmaz.
+- `fetch_loop()` turu `_fetch_cycle()` içinde çalışır ve try/except ile sarılır:
+  beklenmeyen bir hata veri döngüsünü kalıcı olarak durdurmaz.
 - Yeni özellik eklerken istek sayısını artırma; mevcut yanıttaki alanları kullan
   (fiyat, önceki kapanış, para birimi, meta, timestamp serisi).
 - İstisna: detay paneli zaman aralıkları (**1H/1A/1Y**) — yalnızca sekme ilk açıldığında
@@ -90,7 +95,7 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
    `PeekMessageW` (WM_HOTKEY = 0x0312); `MOD_NOREPEAT` desteklenmezse sade moda düşer;
    `PeekMessage` döngüsü 50 ms, çıkışta `UnregisterHotKey`.
    Sonuç `hotkey_queue` → `poll_queue` → `toggle_visibility()`.
-   Kayıt başarısızsa sağ tık menüsündeki ipucu satırı "kaydedilemedi" olur (`_set_hotkey_hint`).
+   Kayıt başarısızsa Ayarlar penceresindeki kısayol etiketi "kaydedilemedi" olur (`_set_hotkey_hint`).
    Gizleme artık `hide_window()` üzerinden gider (detay paneli tutarlılığı).
 3. **README** — kısayol özelliği, kullanım satırı ve sorun giderme notu eklendi.
 4. **Thread güvenliği** —
@@ -426,3 +431,47 @@ verisini kirletmeden test et:
 $env:SW_DATA_DIR = "$env:TEMP\sw_test"
 python stock_widget.py
 ```
+
+## Dayanıklılık turu (1.1.1 hazırlığı)
+
+Kod denetiminde çıkan hatalar giderildi; her madde testle doğrulandı (55 test).
+
+1. **Config artık çökemez.** `load_config` kök nesnenin `dict` olmasını, `theme`
+   tipini, `x`/`y`/`opacity`/`refresh_*` sayısallığını, sembolleri (`clean_symbols`:
+   büyük harf, tekrarsız, ≤20, regex) ve pozisyonları (`clean_positions`: sonlu
+   `qty > 0`, `avg ≥ 0`) doğrular. Önceden `{"theme": []}` veya `[]` kökü
+   `TypeError`/`AttributeError` ile açılışı tamamen engelliyordu.
+2. **Atomik yazma + yedek.** `save_config` geçici dosya + `os.replace` kullanır,
+   önceki iyi dosyayı `config.json.bak`'a kopyalar. `_read_config_file` bozuk
+   dosyada `.bak`'a düşer ve o tur `.bak`'ı ezmez (`_CONFIG_FROM_BACKUP`).
+3. **Takvim.** `market_holidays` artık **4 Temmuz**'u içerir; `is_market_holiday`
+   yılbaşının 31 Aralık'a taştığı durumu komşu yılla yakalar; `early_closes`
+   (şükran sonrası, 24 Aralık, 3 Temmuz) 13:00 ET'de seansı kapatır.
+4. **Veri döngüsü ölemez.** `fetch_loop` → `_fetch_cycle` + try/except; 429'da
+   `Retry-After` okunur ve kalan semboller atlanır (`_fetch_symbols`). Başarısız
+   sembol diğerlerini durdurmaz.
+5. **Veri tutarlılığı.** `fetch_quote`/`fetch_series` alanları `_to_float` ile
+   normalize eder (string/None/sonsuz güvenli); `include_prepost=False` iken PÖ/PS
+   barları grafiğe karışmaz; sparkline rengi PÖ/PS rozetinin rengini izler
+   (önceden normal seans renginde kalıyordu).
+6. **Portföy.** `_has_portfolio` string `qty` ile çökmez; farklı para birimleri
+   toplanmaz, satırda "farklı para birimi" uyarısı çıkar.
+7. **Pencere/DPI.** `virtual_screen()` + `clamp_to_screen()` tüm monitörleri
+   kapsar; monitör sökülünce kart erişilemez yerde kalmaz. Gizlerken Ayarlar,
+   Portföy ve Semboller pencereleri de kapanır.
+8. **Detay paneli.** `series_ts` ile TTL sonrası sekme yeniden açıldığında seri
+   tazelenir (README'nin vaadi artık doğru). `_SERIES_CACHE` 32 kayıtla sınırlı.
+9. **Sembol ekleme.** `clean_symbol` + 20 sembol sınırı; ağ isteğinden önce
+   biçim doğrulanır.
+10. **Paketleme/CI.** Kurulum kısayolları `--toggle` geçirir (kapalıyken kısayol
+    uygulamayı açar); `requirements.txt` sabitlendi; CI matrisi 3.11/3.12/3.13,
+    `ruff`, `coverage` (≥25), `SW_SMOKE` GUI testi ve Inno Setup derlemesi içerir;
+    release `SHA256SUMS.txt` üretir.
+11. **Temizlik.** Kullanılmayan `traceback` importu ve ölü `last_ok` kaldırıldı;
+    `ruff check` temiz.
+
+Yeni testler: `ConfigRobustnessTest` (fuzz, BOM, kesik dosya, yedek kurtarma,
+atomik yazma, yazma hatası), `HolidayCalendarTest` (2000–2100 özellik testi),
+`QuoteParsingTest` (boş/bozuk yanıt, string fiyat, PÖ/PS filtresi, `Retry-After`),
+`FetchLoopTest` (429, kısmi hata), `RowRenderTest` (spark rengi), `VersionSyncTest`,
+`DetailSeriesTest`.

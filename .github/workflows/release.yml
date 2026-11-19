@@ -64,6 +64,17 @@ jobs:
           Compress-Archive -Path dist\StockWidget\* `
             -DestinationPath "StockWidget-$env:APP_VERSION-portable.zip"
 
+      - name: GUI duman testi
+        shell: pwsh
+        run: |
+          # Uygulama SW_SMOKE ile 12 sn sonra kendini kapatır.
+          $env:SW_DATA_DIR = Join-Path $env:RUNNER_TEMP "sw-smoke"
+          $env:SW_SMOKE = "1"
+          New-Item -ItemType Directory -Force $env:SW_DATA_DIR | Out-Null
+          $p = Start-Process -FilePath "dist\StockWidget\StockWidget.exe" -PassThru
+          if (-not $p.WaitForExit(60000)) { $p.Kill(); throw "GUI smoke zaman aşımı" }
+          if ($p.ExitCode -ne 0) { throw "GUI smoke hata kodu: $($p.ExitCode)" }
+
       - name: Inno Setup kur
         run: choco install innosetup --no-progress -y
 
@@ -76,6 +87,20 @@ jobs:
           & $iscc "/DMyAppVersion=$env:APP_VERSION" installer.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup derlemesi başarısız" }
 
+      - name: SHA256 özetleri
+        shell: pwsh
+        run: |
+          $files = @(
+            "StockWidget-$env:APP_VERSION.exe",
+            "StockWidget-$env:APP_VERSION-portable.zip",
+            "Output\StockWidget-$env:APP_VERSION-setup.exe"
+          )
+          $lines = foreach ($f in $files) {
+            $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+            "$h  $(Split-Path $f -Leaf)"
+          }
+          $lines | Set-Content -Encoding ascii SHA256SUMS.txt
+
       - name: GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -85,3 +110,4 @@ jobs:
             StockWidget-${{ env.APP_VERSION }}.exe
             StockWidget-${{ env.APP_VERSION }}-portable.zip
             Output/StockWidget-${{ env.APP_VERSION }}-setup.exe
+            SHA256SUMS.txt
