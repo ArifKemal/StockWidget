@@ -4,9 +4,13 @@ Windows'ta köşede duran, her zaman üstte kalan küçük bir hisse takip widge
 Python + Tkinter; veri Yahoo Finance'in ücretsiz chart endpoint'inden gelir —
 API anahtarı, hesap, abonelik gerekmez. Arayüz Türkçe.
 
-![StockWidget kartı — piyasa sonrası (PS) fiyatları](docs/ekran-ana.png)
+<p align="center">
+  <img src="docs/ekran-ana.png" width="360" alt="StockWidget kartı — piyasa sonrası (PS) fiyatları">
+</p>
 
-![Kart ve detay paneli — PS rozeti ve son kapanış satırı](docs/ekran-detay.png)
+<p align="center">
+  <img src="docs/ekran-detay.png" width="720" alt="Kart ve detay paneli — PS rozeti ve son kapanış satırı">
+</p>
 
 ## İndir
 
