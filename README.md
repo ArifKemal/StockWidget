@@ -5,11 +5,8 @@ Python + Tkinter; veri Yahoo Finance'in ücretsiz chart endpoint'inden gelir —
 API anahtarı, hesap, abonelik gerekmez. Arayüz Türkçe.
 
 <p align="center">
-  <img src="docs/ekran-ana.png" width="360" alt="StockWidget kartı — piyasa sonrası (PS) fiyatları">
-</p>
-
-<p align="center">
-  <img src="docs/ekran-detay.png" width="720" alt="Kart ve detay paneli — PS rozeti ve son kapanış satırı">
+  <img src="docs/ekran-ana.png" width="370" alt="StockWidget kartı — piyasa sonrası (PS) fiyatları">
+  <img src="docs/ekran-acik.png" width="370" alt="Aynı kart açık temada">
 </p>
 
 ## İndir
@@ -88,6 +85,31 @@ $env:SW_DATA_DIR = "$PWD\veri"
   ("önbellek" notuyla); canlı yanıt gelince tazelenir. Değişmeyen satırlar ve
   aynı sparkline yeniden çizilmez; Yahoo bağlantısı `requests.Session` ile
   yeniden kullanılır. Ağ isteği sayısı değişmez.
+
+## Görseller
+
+Detay paneli: **1G / 1H / 1A / 1Y** aralıkları, mum/çizgi geçişi, fareyle
+zaman-fiyat-yüzde okuması, hacim çubukları ve sağ fiyat ekseni.
+
+<p align="center">
+  <img src="docs/ekran-detay.png" width="820" alt="Kart ve detay paneli — PS rozeti, grafik ve istatistikler">
+</p>
+
+<table>
+  <tr>
+    <td align="center" valign="top">
+      <img src="docs/ekran-ayarlar.png" width="430" alt="Ayarlar penceresi">
+      <br><sub>Ayarlar — görünüm, veri ve davranış tek pencerede</sub>
+    </td>
+    <td align="center" valign="top">
+      <img src="docs/ekran-portfoy.png" width="360" alt="Portföy penceresi">
+      <br><sub>Portföy — maliyet, hedef fiyat, not ve K/Z</sub>
+    </td>
+  </tr>
+</table>
+
+Ekran görüntüleri `python tools/screenshot.py` ile gerçek arayüzden üretilir
+(sahte ama tutarlı veriyle, ağa çıkmadan).
 
 ## Veri kaynağı
 
