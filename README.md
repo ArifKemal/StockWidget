@@ -52,7 +52,17 @@ $env:SW_DATA_DIR = "$PWD\veri"
   5 dk barından okunur; bu yüzden kart, detay ve grafik her zaman aynı fiyatı
   gösterir, ek istek yapılmaz. 1G grafiği 04:00–20:05 ET barlarını içerir ve
   eksenin sağ ucu son verinin saatini ("şimdi" ya da saat) gösterir.
-- **Portföy:** toplam değer, günlük değişim ve pozisyon başına K/Z.
+- **Alarmlar:** sembol başına üst fiyat, alt fiyat ve günlük değişim eşiği.
+  Eşik aşıldığında bir kez tepsi bildirimi ve kart altında kısa uyarı çıkar;
+  fiyat geri dönünce alarm yeniden kurulur. PÖ/PS fiyatıyla çalışması isteğe
+  bağlıdır. Ek veri isteği yapılmaz.
+- **Sıralama:** elle, değişim yüzdesi, sembol veya portföy değerine göre.
+  Satıra sağ tık: alarm kur, yukarı/aşağı taşı, sembolü/fiyatı kopyala,
+  Yahoo Finance'te aç.
+- **Klavye:** **F5** yenile, **↑/↓** satır seç, **Enter** detay, **Esc** kapat.
+- **Portföy:** toplam değer, günlük değişim ve pozisyon başına K/Z; hedef fiyat
+  ve not, kartta maliyet gösterimi, para birimi başına ayrı toplamlar ve
+  **CSV** dışa aktarma.
 - **Detay paneli:** satıra tıklayınca açılır; **1G / 1H / 1A / 1Y** aralıkları,
   mum/çizgi geçişi, fareyle zaman-fiyat-yüzde okuması, gün aralığı ve 52 hafta
   çubuğu. **Esc** (ya da sağ üstteki **✕**) paneli kapatır.
@@ -68,18 +78,26 @@ $env:SW_DATA_DIR = "$PWD\veri"
   indirmez/kurmaz, yalnızca indirme sayfasını açar.
 - **Dayanıklılık:** varsayılan açıkken 15 dk, kapalıyken 60 dk yenileme (Ayarlar'dan
   değiştirilebilir); hata sonrası 90 s bekleme. HTTP 429 gelirse kalan semboller
-  atlanır ve `Retry-After` başlığına göre (en az 1 dk) beklenir. NYSE tatilleri ve
-  13:00 ET erken kapanışları (şükran sonrası, Noel arifesi, 3 Temmuz) kapalı sayılır.
-  Tek kopya çalışır. "Piyasa kapalıyken durdur" seçilirse kapalıyken hiç istek
-  gönderilmez. Tek dosya sürümünün `%TEMP%` altında bıraktığı, bir haftadan eski
-  `_MEI…` klasörleri açılışta temizlenir.
+  atlanır ve `Retry-After` başlığına göre (en az 1 dk, HTTP tarihi de desteklenir)
+  beklenir; aynı saniyede geri dönmemek için küçük rastgele gecikme eklenir.
+  NYSE tatilleri ve 13:00 ET erken kapanışları (şükran sonrası, Noel arifesi,
+  3 Temmuz) kapalı sayılır. Tek kopya çalışır. "Piyasa kapalıyken durdur"
+  seçilirse kapalıyken hiç istek gönderilmez. Tek dosya sürümünün `%TEMP%`
+  altında bıraktığı, bir haftadan eski `_MEI…` klasörleri açılışta temizlenir.
+- **Önbellek ve hız:** açılışta son fiyatlar `snapshot.json`'dan gösterilir
+  ("önbellek" notuyla); canlı yanıt gelince tazelenir. Değişmeyen satırlar ve
+  aynı sparkline yeniden çizilmez; Yahoo bağlantısı `requests.Session` ile
+  yeniden kullanılır. Ağ isteği sayısı değişmez.
 
 ## Veri kaynağı
 
 `query1.finance.yahoo.com/v8/finance/chart` kullanılır. Resmî olmayan endpoint
 olduğu için istek sayısı bilinçli olarak düşük tutulur:
 
-- Fiyat + gün istatistikleri + 1G grafiği: **tek istek**.
+- Fiyat + gün istatistikleri + 1G grafiği: **tek istek**. Aynı yanıttaki
+  `marketState`, borsa ve saat dilimi de okunur; böylece ABD dışı sembollerde
+  PÖ/PS rozeti yanlışlıkla gösterilmez. Seans/tatil takvimi şimdilik NYSE
+  kurallarına göredir.
 - Seans dışı fiyat (`includePrePost=true`): aynı yanıttaki son 5 dk barından,
   `prev_close`e göre hesaplanır; ayrı istek yok. 1G penceresi `range=1d` yerine
   açık `period1`/`period2` ile istenir — piyasa öncesi saatlerde Yahoo'nun
@@ -118,7 +136,10 @@ anahtarlar korunur; geçersiz sembol/pozisyon satırları sessizce atılır.
 | `pause_when_closed` | `true` ise hiçbir seans açık değilken istek gönderilmez. |
 | `extended_hours` | `true` ise piyasa öncesi/sonrası (**PÖ**/**PS**) verisi gösterilir. |
 | `close_to_tray` | `true` ise **✕** tepsiye gizler; `false` ise çıkar. |
-| `positions` | `{ "AAPL": { "qty": 12, "avg": 185.4 } }` |
+| `positions` | `{ "AAPL": { "qty": 12, "avg": 185.4, "target": 210, "note": "uzun vade" } }` |
+| `alarms` | `{ "AAPL": { "above": 210, "below": 180, "pct": 5, "extended": false } }` |
+| `sort_mode` | `manual`, `change`, `symbol` veya `value`. |
+| `portfolio_show_cost` | `true` ise kartta değerin yanında maliyet de görünür. |
 
 Aynı klasörde `snapshot.json` (son fiyatların anlık kopyası) ve `update.json`
 (güncelleme denetiminin 24 saatlik önbelleği) tutulur. İkisi de silinebilir;

@@ -39,8 +39,27 @@ jobs:
         run: |
           python -m py_compile stock_widget.py
           python -m coverage run -m unittest test_stock_widget.py
-          python -m coverage report --include="stock_widget.py" --fail-under=25
+          python -m coverage report --include="stock_widget.py" --fail-under=30
           python stock_widget.py --version
+
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: pip-audit kur
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pip-audit==2.10.1
+
+      - name: Bağımlılık güvenlik taraması
+        run: python -m pip_audit --requirement requirements.txt --progress-spinner off
 
   build:
     needs: test
@@ -93,6 +112,11 @@ jobs:
           }
           Write-Host "GUI smoke OK"
 
+      - name: Arayüz matrisi (tema x yoğunluk x DPI)
+        run: |
+          $env:SW_DATA_DIR = Join-Path $env:RUNNER_TEMP "sw-ui-matrix"
+          python tools/ui_matrix.py
+
       - name: Inno Setup kur
         run: choco install innosetup --no-progress -y
 
@@ -106,3 +130,62 @@ jobs:
           if (!(Test-Path $iscc)) { throw "ISCC.exe bulunamadı" }
           & $iscc "/DMyAppVersion=0.0.0" installer.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup derlemesi başarısız" }
+
+      - name: Sessiz kurulum ve kaldırma duman testi
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $setup = Join-Path $PWD "Output\StockWidget-0.0.0-setup.exe"
+          if (!(Test-Path $setup)) { throw "Kurulum paketi yok: $setup" }
+
+          # installer.iss: DefaultDirName={localappdata}\Programs\StockWidget
+          $installDir = Join-Path $env:LOCALAPPDATA "Programs\StockWidget"
+          $installedExe = Join-Path $installDir "StockWidget.exe"
+          $logDir = Join-Path $env:RUNNER_TEMP "stockwidget-installer-smoke"
+          New-Item -ItemType Directory -Force $logDir | Out-Null
+          $installLog = Join-Path $logDir "install.log"
+          $uninstallLog = Join-Path $logDir "uninstall.log"
+          $silentArgs = @("/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES")
+
+          try {
+            $install = Start-Process -FilePath $setup -Wait -PassThru `
+              -ArgumentList ($silentArgs + "/LOG=`"$installLog`"")
+            if ($install.ExitCode -ne 0) {
+              throw "Sessiz kurulum hata kodu: $($install.ExitCode)"
+            }
+            if (!(Test-Path $installedExe)) { throw "Kurulan exe yok: $installedExe" }
+
+            # Penceresiz exe'nin stdout'u PowerShell `&` ile gelmez; cmd /c kullan.
+            $v = (cmd /c "`"$installedExe`" --version 2>&1").Trim()
+            Write-Host "Kurulan exe -> $v"
+            if ($v -ne "StockWidget 0.0.0") { throw "Sürüm uyuşmuyor: $v" }
+          }
+          finally {
+            # Hata yolunda da kurulum/kaldırma adımlarından süreç kalmasın.
+            Get-Process -Name StockWidget -ErrorAction SilentlyContinue |
+              Stop-Process -Force
+            $uninstaller = Get-ChildItem -Path $installDir -Filter "unins*.exe" `
+              -File -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($uninstaller) {
+              $uninstall = Start-Process -FilePath $uninstaller.FullName -Wait -PassThru `
+                -ArgumentList ($silentArgs + "/LOG=`"$uninstallLog`"")
+              if ($uninstall.ExitCode -ne 0) {
+                throw "Sessiz kaldırma hata kodu: $($uninstall.ExitCode)"
+              }
+            }
+            elseif (Test-Path $installedExe) {
+              throw "Kaldırıcı bulunamadı: $installDir"
+            }
+            Get-Process -Name StockWidget -ErrorAction SilentlyContinue |
+              Stop-Process -Force
+            if (Test-Path $installedExe) { throw "Sessiz kaldırma exe'yi temizlemedi" }
+          }
+
+      - name: Kurulum duman testi logları
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inno-smoke-logs
+          path: ${{ runner.temp }}/stockwidget-installer-smoke/*.log
+          if-no-files-found: ignore
+          retention-days: 7

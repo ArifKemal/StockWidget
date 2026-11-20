@@ -16,6 +16,10 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `version_info.txt` — exe sürüm bilgisi (PyInstaller)
 - `tools/bump_version.py` — sürümü kaynak + version_info + installer.iss'e yazar
 - `tools/screenshot.py` — README görsellerini gerçek uygulamadan üretir
+- `tools/ui_matrix.py` — tema × yoğunluk × `SW_SCALE` GUI matrisi (ağsız, traysiz)
+- `tools/render_manifests.py` — Winget/Scoop şablonlarını sürüm+hash ile doldurur
+- `packaging/winget`, `packaging/scoop` — ücretsiz dağıtım manifest şablonları
+- `.github/dependabot.yml` — pip ve GitHub Actions haftalık güncelleme
 - `.github/workflows/ci.yml` / `release.yml` — test+derleme / etiketli sürüm
 - `toggle.vbs` — kaynak modunda masaüstü kısayolu (kurulu sürümde `StockWidget.exe --toggle`)
 - `install_startup.ps1` / `uninstall_startup.ps1` — eski kaynak modu otostart betikleri
@@ -40,6 +44,22 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - **`snapshot.json`** yalnızca ana thread'de (`apply_data`) atomik yazılır; açılışta
   `__init__` içinde `build_ui`'den önce okunur. İçeriği elle bozulmuş olabileceği
   için `load_snapshot` tüm sayıları ve grafik listelerini yeniden doğrular.
+  Aynı fiyat paketi tekrar yazılmaz (`_snapshot_blob`).
+- **Sıralama yalnızca görünümdür:** `cfg["symbols"]` elle sırayı korur;
+  `_ordered_symbols()` `_view_symbols`'ü üretir. `_release`, sağ tık menüsü ve
+  klavye daima `_view_symbols` kullanmalı; cfg indeksine göre satır açma.
+- **Alarm state'i çalışma zamanındadır** (`_alarm_state`), config'e yazılmaz.
+  `evaluate_alarm` eşik geçişinde bir kez olay üretir; koşul bozulunca sıfırlanır.
+  Alarm, PÖ/PS fiyatını yalnızca hem global hem alarm ayarı açıksa kullanır.
+- **Çizim önbelleği:** `_render_row` aynı anahtarla çağrılırsa hiçbir şey silmez;
+  sparkline `_spark_cache` ile `PhotoImage` düzeyinde paylaşılır. `build_ui`
+  iki önbelleği de temizler. Yeni çizim girdisi eklerken `_render_row` anahtarına
+  eklemeyi unutma.
+- **HTTP:** `_HTTP` (requests.Session) + `_HTTP_LOCK`; testler `sw._HTTP.get`
+  patch'ler. Yeni ağ çağrıları `requests.get` değil `_http_get` kullanmalı.
+- Test kancaları: `SW_SCALE` DPI ölçeğini, `SW_DISABLE_TRAY=1` tepsiyi kapatır,
+  `SW_INSTANCE_SUFFIX` mutex/olay adlarını ayırır (kurulu kopya açıkken duman
+  testi çalıştırmak için). Üçü de yalnızca test amaçlıdır.
 - Döngüler `self.stop_flag` (threading.Event) ile durur; çıkışta thread'ler daemon olduğu için
   süreç sonlanır, kaynaklar (hotkey kaydı, mutex) serbest kalır.
 - Tek örnek: `acquire_single_instance()` adlandırılmış mutex. İkinci kopya `--toggle`
@@ -408,6 +428,7 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 cd "C:\Users\<kullanıcı>\Desktop\StockWidget"
 python -m py_compile stock_widget.py
 python -m unittest test_stock_widget.py
+python tools\ui_matrix.py                  :: tema x yoğunluk x DPI (ağsız, traysiz)
 set SW_SMOKE=1 && python stock_widget.py   :: 12 sn sonra kendini kapatır (duman testi)
 python stock_widget.py --version
 python stock_widget.py --toggle            :: çalışan kopyayı göster/gizle
@@ -510,3 +531,36 @@ sahte eski `_MEI` klasörü silindi; **B)** `--quit` çalışan kopyayı ~3 sn'd
 temiz kapattı; **C)** argümansız ikinci kopya sessizce çıktı, birinci yaşamaya
 devam etti, sonra `--quit` ile kapandı. Not: `cmd /c` GUI uygulamayı beklemez;
 `--quit` doğrulaması için `Start-Process`/Python `subprocess` ile bekle.
+## Ücretsiz iyileştirme turu (feature/free-pack)
+
+Geri dönüş noktası: `checkpoint/pre-free-pack-2026-11-20` (b91eb95).
+Yeni özellikler ayrı dalda; main değişmedi.
+
+1. **Alarmlar.** `cfg["alarms"]`: sembol başına `above`, `below`, `pct`,
+   `extended`. `clean_alarms` doğrular; `evaluate_alarm` eşik geçişinde bir kez
+   olay üretir ve koşul bozulunca sıfırlanır. Bildirim: tepsi (tek özet) + kart
+   altında 60 s uyarı + satırda ◆. Sağ tık → "Alarm kur…" ilgili sembole odaklar.
+2. **Veri tazeliği.** `snapshot.json`'dan gelen satırlar `stale` iken soluk ve
+   altbilgide "önbellek · x önce"; canlı yanıtta düzelir. `quote_ts` ile detayda
+   verinin gerçek saati; `market_state` ile PÖ/PS/ açık/kapalı etiketi.
+3. **Sıralama ve kısayollar.** `sort_mode`: manual/change/symbol/value; elle
+   sıra cfg'de korunur, görünüm `_view_symbols` ile türetilir. Satır sağ tık:
+   yukarı/aşağı taşı, sembol/fiyat kopyala, Yahoo'da aç. F5/↑/↓/Enter/Esc.
+4. **Performans.** Değişmeyen satır çizilmez (`_render_keys`), sparkline
+   `PhotoImage` önbelleği (`_spark_cache`, 64 kayıt), aynı snapshot tekrar
+   yazılmaz, `requests.Session` + kısa kilit. 429'a jitter; Retry-After artık
+   HTTP tarihini de çözer. İstek sayısı değişmedi.
+5. **Portföy.** Hedef fiyat + not (config, sağ tık ve düzenleyici), para birimi
+   başına ayrı toplamlar (kart ve düzenleyici), kartta maliyet seçeneği,
+   `portfolio_csv_rows` + UTF-8 BOM'lu `;` ayraçlı CSV dışa aktarma.
+6. **Borsa farkındalığı.** Aynı Yahoo yanıtından `exchangeName`,
+   `marketState`, `exchangeTimezoneName`, `regularMarketTime` okunur. ABD dışı
+   bilinen borsalarda PÖ/PS rozeti bastırılır; seans/tatil takvimi hâlâ NYSE.
+7. **Test/altyapı.** 78 → 96 test; `tools/ui_matrix.py` 5 ölçek × 4 tema × 2
+   yoğunluk + alarm/portföy pencerelerini doğrular. CI: pip-audit (ayrı job),
+   coverage eşiği 30, Inno sessiz kurulum/kaldırma testi, log artifact'i.
+   Release: CycloneDX `sbom.json`. Dependabot (pip + actions). Winget/Scoop
+   şablonları ve `tools/render_manifests.py`.
+8. **Bilinçli sınırlar.** Otomatik güncelleme indirme yok (yalnızca bildirim);
+   ABD dışı borsa tatil takvimi yok; UPX/Nuitka denenmedi (AV/risk); SignPath
+   başvurusu dış hesap gerektirir.

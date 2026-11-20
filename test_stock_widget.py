@@ -1,6 +1,7 @@
 """StockWidget için hızlı birim testleri (stdlib unittest)."""
 import calendar
 import datetime
+import email.utils
 import json
 import logging
 import os
@@ -265,14 +266,14 @@ class HelpersTest(unittest.TestCase):
             def json(self):
                 return self.body
 
-        saved = sw.requests.get
+        saved = sw._HTTP.get
 
         def fake_get(url, **kwargs):
             return _Resp(payload(fake_get.with_post))
 
         fake_get.with_post = True
         try:
-            sw.requests.get = fake_get
+            sw._HTTP.get = fake_get
             info = sw.fetch_quote("TEST", True)
             # Grafiğin son barı (=5.10) kart fiyatı olur, kapanış 4.68 değil
             self.assertEqual(info["spark"][-1], 5.10)
@@ -287,7 +288,7 @@ class HelpersTest(unittest.TestCase):
             self.assertIsNone(info["ext_session"])
             self.assertIsNone(info["ext_price"])
         finally:
-            sw.requests.get = saved
+            sw._HTTP.get = saved
 
 
 
@@ -658,7 +659,7 @@ def _chart_payload(closes, stamps, price=1.0, prev=1.0):
 
 class QuoteParsingTest(unittest.TestCase):
     def _fetch(self, payload, include_prepost=False, status=200):
-        with mock.patch.object(sw.requests, "get",
+        with mock.patch.object(sw._HTTP, "get",
                                return_value=_Resp(payload, status)):
             return sw.fetch_quote("TEST", include_prepost)
 
@@ -909,7 +910,7 @@ class UpdateCheckTest(unittest.TestCase):
         self.assertFalse(app._newer_release(None))
 
     def test_check_latest_release_parses_tag(self):
-        with mock.patch.object(sw.requests, "get",
+        with mock.patch.object(sw._HTTP, "get",
                                return_value=_Resp({"tag_name": "v1.2.0",
                                                    "html_url": "https://x"})):
             info = sw.check_latest_release()
@@ -918,7 +919,7 @@ class UpdateCheckTest(unittest.TestCase):
         self.assertIsInstance(info["ts"], float)
 
     def test_check_latest_release_uses_name(self):
-        with mock.patch.object(sw.requests, "get",
+        with mock.patch.object(sw._HTTP, "get",
                                return_value=_Resp({"name": "StockWidget 1.3.1",
                                                    "html_url": "https://y"})):
             self.assertEqual(sw.check_latest_release()["version"], "1.3.1")
@@ -928,15 +929,15 @@ class UpdateCheckTest(unittest.TestCase):
                     {"tag_name": "bozuk", "html_url": "https://x"},
                     {"tag_name": "v1.0.0", "html_url": 5}]
         for payload in payloads:
-            with mock.patch.object(sw.requests, "get",
+            with mock.patch.object(sw._HTTP, "get",
                                    return_value=_Resp(payload)):
                 self.assertIsNone(sw.check_latest_release(), payload)
 
     def test_check_latest_release_network_error(self):
-        with mock.patch.object(sw.requests, "get",
+        with mock.patch.object(sw._HTTP, "get",
                                side_effect=sw.requests.exceptions.ConnectionError):
             self.assertIsNone(sw.check_latest_release())
-        with mock.patch.object(sw.requests, "get",
+        with mock.patch.object(sw._HTTP, "get",
                                return_value=_Resp({}, status=500)):
             self.assertIsNone(sw.check_latest_release())
 
@@ -1061,6 +1062,209 @@ class UpdateCacheTest(unittest.TestCase):
     def test_write_failure_is_silent(self):
         sw.UPDATE_FILE = self.dir          # dosya değil, klasör
         sw.write_update_cache({"version": "1.0.0"})
+
+
+class AlarmTest(unittest.TestCase):
+    def test_clean_alarms(self):
+        out = sw.clean_alarms({
+            "aapl": {"above": "200", "below": "150", "pct": "5"},
+            "BAD SYM": {"above": 1},
+            "ZERO": {"above": 0, "pct": -2},
+            "LIST": [1, 2],
+        })
+        self.assertEqual(out, {"AAPL": {"above": 200.0, "below": 150.0,
+                                        "pct": 5.0, "extended": False}})
+        self.assertEqual(sw.clean_alarms([]), {})
+        self.assertEqual(sw.clean_alarms({"A": {"extended": True}}), {})
+
+    def _info(self, price=100.0, pct=1.0, ext=None, ext_price=None,
+              ext_pct=None):
+        return {"price": price, "change_pct": pct, "currency": "USD",
+                "ext_session": ext, "ext_price": ext_price,
+                "ext_change_pct": ext_pct}
+
+    def test_above_latches_until_it_returns(self):
+        state = {}
+        rule = {"above": 100.0}
+        self.assertEqual(sw.evaluate_alarm("A", self._info(99), rule, state), [])
+        events = sw.evaluate_alarm("A", self._info(101), rule, state)
+        self.assertEqual(len(events), 1)
+        self.assertIn("üzerine", events[0])
+        self.assertEqual(sw.evaluate_alarm("A", self._info(102), rule, state), [])
+        sw.evaluate_alarm("A", self._info(99), rule, state)
+        self.assertEqual(len(sw.evaluate_alarm("A", self._info(101), rule,
+                                               state)), 1)
+
+    def test_below_and_pct(self):
+        state = {}
+        rule = {"below": 90.0, "pct": 5.0}
+        self.assertEqual(sw.evaluate_alarm("A", self._info(95, 1), rule, state),
+                         [])
+        events = sw.evaluate_alarm("A", self._info(89, -6), rule, state)
+        self.assertEqual(len(events), 2)
+        self.assertTrue(any("altına" in e for e in events))
+        self.assertTrue(any("günlük değişim" in e for e in events))
+        self.assertEqual(sw.evaluate_alarm("A", self._info(89, -6), rule,
+                                           state), [])
+
+    def test_extended_rule_uses_prepost_price(self):
+        info = self._info(100, 1, ext="pre", ext_price=105, ext_pct=2)
+        self.assertEqual(sw.evaluate_alarm("A", info, {"above": 102}, {},
+                                           extended=False), [])
+        state = {}
+        self.assertEqual(len(sw.evaluate_alarm("A", info, {"above": 102},
+                                               state, extended=True)), 1)
+
+    def test_missing_price_does_not_crash_or_trigger(self):
+        state = {}
+        self.assertEqual(sw.evaluate_alarm(
+            "A", {"price": None, "change_pct": None},
+            {"above": 1, "pct": 1}, state), [])
+        self.assertEqual(state, {})
+
+    def test_alarm_quote_falls_back_to_regular(self):
+        price, pct = sw.alarm_quote(
+            self._info(100, 1, ext="post", ext_price=None), True)
+        self.assertEqual((price, pct), (100.0, 1.0))
+
+
+class PortfolioExtraTest(unittest.TestCase):
+    def test_clean_positions_target_and_note(self):
+        out = sw.clean_positions({"AAPL": {
+            "qty": 2, "avg": 100, "target": "150", "note": "  uzun vade  "}})
+        self.assertEqual(out["AAPL"]["target"], 150.0)
+        self.assertEqual(out["AAPL"]["note"], "uzun vade")
+        out = sw.clean_positions({"AAPL": {
+            "qty": 2, "avg": 100, "target": 0, "note": 5}})
+        self.assertNotIn("target", out["AAPL"])
+        self.assertNotIn("note", out["AAPL"])
+
+    def test_csv_rows_keep_currencies_separate(self):
+        rows = sw.portfolio_csv_rows(
+            {"AAPL": {"qty": 2, "avg": 100, "target": 150,
+                      "note": "not"},
+             "SAP": {"qty": 1, "avg": 100}},
+            {"AAPL": {"price": 120, "prev_close": 110, "currency": "USD"},
+             "SAP": {"price": 90, "prev_close": 95, "currency": "EUR"}})
+        self.assertEqual(len(rows), 2)
+        by_sym = {r[0]: r for r in rows}
+        self.assertEqual(by_sym["AAPL"][5], "USD")
+        self.assertEqual(by_sym["AAPL"][7], 240.0)
+        self.assertEqual(by_sym["AAPL"][9], 40.0)
+        self.assertEqual(by_sym["AAPL"][10], 20.0)
+        self.assertEqual(by_sym["SAP"][5], "EUR")
+        self.assertEqual(by_sym["SAP"][9], -10.0)
+
+    def test_by_currency_totals(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.cfg = {"positions": {"AAPL": {"qty": 2, "avg": 100},
+                                 "SAP": {"qty": 1, "avg": 100}},
+                   "portfolio_show_cost": True}
+        app.last = {"AAPL": {"price": 120, "prev_close": 110,
+                             "currency": "USD"},
+                    "SAP": {"price": 90, "prev_close": 95,
+                            "currency": "EUR"}}
+        totals = app._portfolio_by_currency()
+        self.assertEqual(sorted(totals), ["EUR", "USD"])
+        self.assertAlmostEqual(totals["USD"]["value"], 240.0)
+        self.assertAlmostEqual(totals["USD"]["cost"], 200.0)
+        self.assertAlmostEqual(totals["USD"]["day"], 20.0)
+        self.assertAlmostEqual(totals["EUR"]["day"], -5.0)
+
+    def test_csv_empty_portfolio(self):
+        self.assertEqual(sw.portfolio_csv_rows({}, {}), [])
+
+
+class SortingTest(unittest.TestCase):
+    def _app(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.cfg = {"symbols": ["B", "A", "C"], "sort_mode": "manual",
+                   "positions": {"C": {"qty": 2, "avg": 1}}}
+        app.last = {"A": {"change_pct": 5.0, "price": 10},
+                    "B": {"change_pct": -1.0, "price": 20},
+                    "C": {"change_pct": 2.0, "price": 30}}
+        return app
+
+    def test_modes(self):
+        app = self._app()
+        self.assertEqual(app._ordered_symbols(), ["B", "A", "C"])
+        app.cfg["sort_mode"] = "change"
+        self.assertEqual(app._ordered_symbols(), ["A", "C", "B"])
+        app.cfg["sort_mode"] = "symbol"
+        self.assertEqual(app._ordered_symbols(), ["A", "B", "C"])
+        app.cfg["sort_mode"] = "value"
+        self.assertEqual(app._ordered_symbols(), ["C", "B", "A"])
+
+    def test_missing_data_sorts_last(self):
+        app = self._app()
+        app.last.pop("A")
+        app.cfg["sort_mode"] = "change"
+        self.assertEqual(app._ordered_symbols(), ["C", "B", "A"])
+
+
+class RetryAfterDateTest(unittest.TestCase):
+    def test_http_date(self):
+        when = datetime.datetime.now(datetime.timezone.utc) + \
+            datetime.timedelta(seconds=180)
+        value = email.utils.format_datetime(when, usegmt=True)
+        seconds = sw._retry_after(_Resp(headers={"Retry-After": value}))
+        self.assertGreaterEqual(seconds, 170)
+        self.assertLessEqual(seconds, 180)
+
+    def test_invalid_date_falls_back(self):
+        self.assertEqual(sw._retry_after(
+            _Resp(headers={"Retry-After": "soon"})), sw.THROTTLE_429)
+
+
+class UsExchangeTest(unittest.TestCase):
+    def _payload(self, exchange, stamps):
+        payload = _chart_payload([1.0, 2.0], stamps, 2.0, 1.0)
+        payload["chart"]["result"][0]["meta"]["exchangeName"] = exchange
+        return payload
+
+    def test_non_us_exchange_has_no_prepost_badge(self):
+        stamps = [calendar.timegm(datetime.datetime(2026, 11, 18, h).timetuple())
+                  for h in (10, 15)]
+        with mock.patch.object(sw._HTTP, "get",
+                               return_value=_Resp(self._payload("IST", stamps))):
+            info = sw.fetch_quote("THYAO.IS", True)
+        self.assertIsNone(info["ext_session"])
+        self.assertIsNone(info["ext_price"])
+
+    def test_us_exchange_keeps_prepost(self):
+        stamps = [calendar.timegm(datetime.datetime(2026, 11, 18, h).timetuple())
+                  for h in (10, 11)]
+        with mock.patch.object(sw._HTTP, "get",
+                               return_value=_Resp(self._payload("NMS", stamps))):
+            info = sw.fetch_quote("AAPL", True)
+        self.assertEqual(info["ext_session"], "pre")
+
+    def test_metadata_fields(self):
+        payload = _chart_payload([1.0], [0], 1.0, 1.0)
+        meta = payload["chart"]["result"][0]["meta"]
+        meta.update({"exchangeName": "NMS", "marketState": "REGULAR",
+                     "exchangeTimezoneName": "America/New_York",
+                     "regularMarketTime": 1700000000})
+        with mock.patch.object(sw._HTTP, "get",
+                               return_value=_Resp(payload)):
+            info = sw.fetch_quote("AAPL", True)
+        self.assertEqual(info["market_state"], "REGULAR")
+        self.assertEqual(info["timezone"], "America/New_York")
+        self.assertEqual(info["quote_ts"], 1700000000.0)
+
+
+class RenderCacheTest(unittest.TestCase):
+    def test_unchanged_row_is_not_redrawn(self):
+        helper = RowRenderTest("test_row_badge_cleared_between_refreshes")
+        w = helper._widget()
+        info = helper._info()
+        w._render_row("AAA", info)
+        count = len(w.canvas.items)
+        w._render_row("AAA", dict(info))
+        self.assertEqual(len(w.canvas.items), count)
+        info["change_pct"] = -9.9
+        w._render_row("AAA", info)
+        self.assertEqual(len(w.canvas.items), count)
 
 
 if __name__ == "__main__":

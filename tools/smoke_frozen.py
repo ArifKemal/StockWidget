@@ -49,6 +49,7 @@ def make_env(run, data, smoke=False):
     env["TEMP"] = run
     env["TMP"] = run
     env["SW_DATA_DIR"] = data
+    env["SW_INSTANCE_SUFFIX"] = "smoke"
     env.pop("SW_SMOKE", None)
     if smoke:
         env["SW_SMOKE"] = "1"

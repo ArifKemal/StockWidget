@@ -1,0 +1,36 @@
+# Winget singleton manifest şablonu.
+# InstallerUrl, release'teki StockWidget-{{VERSION}}-setup.exe dosyasına işaret etmelidir.
+# StockWidget-{{VERSION}}.exe tek dosya ve -portable.zip portatif alternatiflerdir;
+# bu manifest yalnızca kullanıcı bazlı Inno Setup kurulumunu dağıtır.
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.10.0.schema.json
+
+PackageIdentifier: ArifKemal.StockWidget
+PackageVersion: "{{VERSION}}"
+PackageLocale: en-US
+Publisher: Arif Kemal
+PublisherUrl: https://github.com/ArifKemal
+PublisherSupportUrl: https://github.com/ArifKemal/StockWidget/issues
+PackageName: StockWidget
+PackageUrl: https://github.com/ArifKemal/StockWidget
+License: MIT
+LicenseUrl: https://github.com/ArifKemal/StockWidget/blob/main/LICENSE
+ShortDescription: A lightweight desktop stock tracking widget for Windows.
+Moniker: stockwidget
+Tags:
+- stocks
+- finance
+- portfolio
+- desktop-widget
+ReleaseNotesUrl: https://github.com/ArifKemal/StockWidget/releases/tag/v{{VERSION}}
+InstallerType: inno
+Scope: user
+UpgradeBehavior: install
+InstallerSwitches:
+  Silent: /VERYSILENT /NORESTART /SUPPRESSMSGBOXES
+  SilentWithProgress: /SILENT /NORESTART /SUPPRESSMSGBOXES
+Installers:
+- Architecture: x64
+  InstallerUrl: "{{SETUP_URL}}"
+  InstallerSha256: {{SETUP_SHA256}}
+ManifestType: singleton
+ManifestVersion: 1.10.0

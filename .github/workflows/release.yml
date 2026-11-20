@@ -24,7 +24,7 @@ jobs:
       - name: Bağımlılıklar
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pyinstaller
+          python -m pip install -r requirements.txt pyinstaller cyclonedx-bom==9.0.0
 
       - name: Etiketten sürümü uygula
         shell: bash
@@ -101,6 +101,22 @@ jobs:
           }
           $lines | Set-Content -Encoding ascii SHA256SUMS.txt
 
+      - name: CycloneDX SBOM
+        run: python -m cyclonedx_py requirements requirements.txt --output-format JSON --output-file sbom.json
+
+      - name: Winget ve Scoop manifestleri
+        shell: pwsh
+        run: |
+          $v = $env:APP_VERSION
+          $base = "https://github.com/ArifKemal/StockWidget/releases/download/v$v"
+          $setupHash = (Get-FileHash "Output\StockWidget-$v-setup.exe" -Algorithm SHA256).Hash
+          $portableHash = (Get-FileHash "StockWidget-$v-portable.zip" -Algorithm SHA256).Hash
+          python tools/render_manifests.py --version $v `
+            --setup-url "$base/StockWidget-$v-setup.exe" --setup-sha256 $setupHash `
+            --portable-url "$base/StockWidget-$v-portable.zip" --portable-sha256 $portableHash `
+            --output-dir packaging-out
+          if ($LASTEXITCODE -ne 0) { throw "Manifest üretimi başarısız" }
+
       - name: GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -111,3 +127,6 @@ jobs:
             StockWidget-${{ env.APP_VERSION }}-portable.zip
             Output/StockWidget-${{ env.APP_VERSION }}-setup.exe
             SHA256SUMS.txt
+            sbom.json
+            packaging-out/winget/ArifKemal.StockWidget.yaml
+            packaging-out/scoop/stockwidget.json

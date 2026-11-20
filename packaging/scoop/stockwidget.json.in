@@ -1,0 +1,32 @@
+// Scoop şablonu; renderer geçerli JSON üretmek için // yorum satırlarını kaldırır.
+// url, release'teki StockWidget-{{VERSION}}-portable.zip dosyasına işaret etmelidir.
+// StockWidget-{{VERSION}}.exe tek dosya ve -setup.exe kurulum alternatifleridir.
+{
+  "version": "{{VERSION}}",
+  "description": "A lightweight desktop stock tracking widget for Windows",
+  "homepage": "https://github.com/ArifKemal/StockWidget",
+  "license": "MIT",
+  "notes": "Settings are stored in '%APPDATA%\\StockWidget'.",
+  "architecture": {
+    "64bit": {
+      "url": "{{PORTABLE_URL}}",
+      "hash": "{{PORTABLE_SHA256}}"
+    }
+  },
+  "shortcuts": [
+    [
+      "StockWidget.exe",
+      "StockWidget"
+    ]
+  ],
+  "checkver": {
+    "github": "https://github.com/ArifKemal/StockWidget"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/ArifKemal/StockWidget/releases/download/v$version/StockWidget-$version-portable.zip"
+      }
+    }
+  }
+}
