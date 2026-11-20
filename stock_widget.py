@@ -33,8 +33,13 @@ except ImportError:
 try:
     from PIL import Image, ImageDraw, ImageTk, ImageChops
     PIL_AVAILABLE = True
+    try:
+        RESAMPLE_LANCZOS = Image.Resampling.LANCZOS
+    except AttributeError:      # Pillow < 9.1
+        RESAMPLE_LANCZOS = Image.LANCZOS
 except ImportError:
     PIL_AVAILABLE = False
+    RESAMPLE_LANCZOS = None
 
 APP_NAME = "StockWidget"
 APP_VERSION = "1.1.0"
@@ -1483,7 +1488,7 @@ def render_spark(values, w, h, color, fill=None, ref=None, grid=None,
         r = max(2, int(round(2 * ss)))
         ex, ey = pts[-1]
         d.ellipse([ex - r, ey - r, ex + r, ey + r], fill=rgb + (255,))
-    return img.resize((w, h), Image.LANCZOS)
+    return img.resize((w, h), RESAMPLE_LANCZOS)
 
 
 def downsample_ohlc(ohlc, max_n=70):
@@ -1542,7 +1547,7 @@ def render_candles(ohlc, w, h, up_color, down_color, grid=None, grid_lines=0,
             bot = top + ss
         d.rectangle([x - bw / 2.0, top, x + bw / 2.0, bot],
                     fill=col + (230,))
-    return img.resize((w, h), Image.LANCZOS)
+    return img.resize((w, h), RESAMPLE_LANCZOS)
 
 
 SERIES_URL = ("https://query1.finance.yahoo.com/v8/finance/chart/"
@@ -4583,6 +4588,9 @@ class StockWidget:
         small_button(footer, "Portföy…",
                      self.open_portfolio_editor).pack(side="left",
                                                       padx=(s(6), 0))
+        small_button(footer, "Alarmlar…",
+                     self.open_alarm_editor).pack(side="left",
+                                                  padx=(s(6), 0))
         tk.Button(footer, text="Kapat", bg=ACCENT, fg="#ffffff", bd=0,
                   activebackground=ACCENT_HOVER, activeforeground="#ffffff",
                   font=("Segoe UI", 9, "bold"), cursor="hand2",

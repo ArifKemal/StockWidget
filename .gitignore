@@ -9,6 +9,10 @@ config.json.tmp
 .coverage
 _hover_preview.png
 
+# Ajan oturum dökümleri
+*-app-plan.json
+*.session.json
+
 # Derleme çıktıları
 build/
 dist/

@@ -76,6 +76,13 @@ def run_scale(scale):
         dlg.update_idletasks()
         assert dlg.winfo_width() > 100
         dlg.destroy()
+        dlg = app.open_settings_editor()
+        dlg.update_idletasks()
+        assert dlg.winfo_width() > 100
+        # Alt bardaki Semboller/Portföy/Alarmlar/Kapat sığmalı
+        assert dlg.winfo_reqwidth() <= dlg.winfo_width() + 1, (
+            dlg.winfo_reqwidth(), dlg.winfo_width())
+        dlg.destroy()
     finally:
         app.exit_app()
 

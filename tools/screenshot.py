@@ -14,7 +14,7 @@ import shutil
 import sys
 import time
 
-from PIL import ImageGrab
+from PIL import ImageGrab, ImageStat
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -146,9 +146,12 @@ def grab(app, tk, boxes, name, top=None):
     backdrop = tk.Toplevel(app.root)
     backdrop.overrideredirect(True)
     backdrop.configure(bg=BACKDROP)
-    backdrop.attributes("-topmost", True)
     backdrop.geometry("%dx%d+%d+%d" % (x2 - x1, y2 - y1, x1, y1))
-    backdrop.lift()
+    # Arka plan topmost OLMAMALI: aksi halde widget'ı örtüp boş görüntü
+    # yakalanmasına yol açıyor (topmost pencereler arasında z-sırası garanti
+    # değil). Widget zaten topmost; arka planı onun altına indir.
+    backdrop.attributes("-topmost", False)
+    backdrop.lower(app.root)
     for window in (app.root, top):
         if window is not None:
             try:
@@ -157,14 +160,23 @@ def grab(app, tk, boxes, name, top=None):
                 pass
     app.root.update_idletasks()
     app.root.update()
-    time.sleep(0.25)
-    ImageGrab.grab(bbox=(x1, y1, x2, y2)).save(
-        os.path.join(SHOT_DIR, name))
+    time.sleep(0.3)
+    image = ImageGrab.grab(bbox=(x1, y1, x2, y2)).convert("RGB")
+    # Boş/tek renk yakalama, iyi README görsellerini ezmesin.
+    if max(ImageStat.Stat(image).stddev) < 3.0:
+        print("uyarı: %s boş yakalandı; dosya korundu" % name)
+        try:
+            backdrop.destroy()
+        except tk.TclError:
+            pass
+        return False
+    image.save(os.path.join(SHOT_DIR, name))
     print("yazıldı: docs/%s" % name)
     try:
         backdrop.destroy()
     except tk.TclError:
         pass
+    return True
 
 
 def stop(app):
@@ -203,7 +215,7 @@ def main():
 
     box = (app.root.winfo_rootx(), app.root.winfo_rooty(),
            app.root.winfo_width(), app.root.winfo_height())
-    grab(app, tk, [box], "ekran-ana.png")
+    ok = grab(app, tk, [box], "ekran-ana.png")
 
     app.open_detail("AAPL")
     for _ in range(30):
@@ -213,10 +225,14 @@ def main():
     if panel is not None:
         pbox = (panel.win.winfo_rootx(), panel.win.winfo_rooty(),
                 panel.win.winfo_width(), panel.win.winfo_height())
-        grab(app, tk, [box, pbox], "ekran-detay.png", top=panel.win)
+        ok = grab(app, tk, [box, pbox], "ekran-detay.png",
+                  top=panel.win) and ok
 
     stop(app)
     shutil.rmtree(DATA_DIR, ignore_errors=True)
+    if not ok:
+        print("görüntü yakalanamadı; mevcut dosyalar korundu")
+        return 1
     print("tamam")
     return 0
 

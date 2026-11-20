@@ -18,8 +18,9 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `version_info.txt` — exe sürüm bilgisi (PyInstaller)
 - `tools/bump_version.py` — sürümü kaynak + version_info + installer.iss'e yazar
 - `tools/screenshot.py` — README görsellerini gerçek uygulamadan üretir
-  (sabit sahte veri, ağsız, 2x; masaüstü sızmasın diye backdrop topmost,
-  kısayol thread'i "registered" ile değiştirilir)
+  (sabit sahte veri, ağsız, 2x; widget topmost, backdrop onun altında;
+  kısayol thread'i "registered" ile değiştirilir; boş yakalarsa mevcut
+  dosyayı silmez, sıfırdan farklı çıkış kodu verir)
 - `tools/ui_matrix.py` — tema × yoğunluk × `SW_SCALE` GUI matrisi (ağsız, traysiz)
 - `tools/render_manifests.py` — Winget/Scoop şablonlarını sürüm+hash ile doldurur
 - `packaging/winget`, `packaging/scoop` — ücretsiz dağıtım manifest şablonları
@@ -537,10 +538,12 @@ sahte eski `_MEI` klasörü silindi; **B)** `--quit` çalışan kopyayı ~3 sn'd
 temiz kapattı; **C)** argümansız ikinci kopya sessizce çıktı, birinci yaşamaya
 devam etti, sonra `--quit` ile kapandı. Not: `cmd /c` GUI uygulamayı beklemez;
 `--quit` doğrulaması için `Start-Process`/Python `subprocess` ile bekle.
-## Ücretsiz iyileştirme turu (feature/free-pack)
+
+## Ücretsiz iyileştirme turu (main'e birleşti)
 
 Geri dönüş noktası: `checkpoint/pre-free-pack-2026-11-20` (b91eb95).
-Yeni özellikler ayrı dalda; main değişmedi.
+Yeni özellikler `feature/free-pack` üzerinde geliştirildi ve 2026-11-20'de
+`main`e fast-forward birleştirildi; dal silindi. Geri dönüş etiketi duruyor.
 
 > Ayrıntılı, ajanlar için sözleşme düzeyi harita: **`AGENT-FEATURES.md`**
 > (config şeması, fonksiyon girdi/çıktıları, `apply_data` sırası, render
@@ -569,8 +572,9 @@ Yeni özellikler ayrı dalda; main değişmedi.
 7. **Test/altyapı.** 78 → 96 test; `tools/ui_matrix.py` 5 ölçek × 4 tema × 2
    yoğunluk + alarm/portföy pencerelerini doğrular. CI: pip-audit (ayrı job),
    coverage eşiği 30, Inno sessiz kurulum/kaldırma testi, log artifact'i.
-   Release: CycloneDX `sbom.json`. Dependabot (pip + actions). Winget/Scoop
-   şablonları ve `tools/render_manifests.py`.
+   Release: CycloneDX `sbom.json`. Dependabot yapılandırıldı ancak açık PR
+   limiti 0 (depo tek dallı kalsın diye kapalı); güvenlik `pip-audit` ile
+   izleniyor. Winget/Scoop şablonları ve `tools/render_manifests.py`.
 8. **Bilinçli sınırlar.** Otomatik güncelleme indirme yok (yalnızca bildirim);
    ABD dışı borsa tatil takvimi yok; UPX/Nuitka denenmedi (AV/risk); SignPath
    başvurusu dış hesap gerektirir.
