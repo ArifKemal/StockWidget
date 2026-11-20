@@ -1,11 +1,17 @@
+# Bağımlılık güncellemeleri bilinçli olarak kapalı: Dependabot her hafta
+# 8 ayrı dal/PR açıyordu, depo tek dallı kalsın istendi.
+# Açmak için `open-pull-requests-limit` değerini artır (örn. 3).
+# Güvenlik uyarıları repo ayarlarından (Settings → Code security) ayrıca açılabilir.
 version: 2
 updates:
   - package-ecosystem: pip
     directory: "/"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 0
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 0

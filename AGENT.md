@@ -23,7 +23,8 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `tools/ui_matrix.py` — tema × yoğunluk × `SW_SCALE` GUI matrisi (ağsız, traysiz)
 - `tools/render_manifests.py` — Winget/Scoop şablonlarını sürüm+hash ile doldurur
 - `packaging/winget`, `packaging/scoop` — ücretsiz dağıtım manifest şablonları
-- `.github/dependabot.yml` — pip ve GitHub Actions haftalık güncelleme
+- `.github/dependabot.yml` — pip ve GitHub Actions güncellemesi; şu an
+  `open-pull-requests-limit: 0` ile kapalı (depo tek dallı kalsın diye)
 - `.github/workflows/ci.yml` / `release.yml` — test+derleme / etiketli sürüm
 - `toggle.vbs` — kaynak modunda masaüstü kısayolu (kurulu sürümde `StockWidget.exe --toggle`)
 - `install_startup.ps1` / `uninstall_startup.ps1` — eski kaynak modu otostart betikleri
