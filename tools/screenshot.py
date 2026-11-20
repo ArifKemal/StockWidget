@@ -5,8 +5,7 @@ değiştirilir; böylece görseller her çalıştırmada aynı çıkar ve piyasa
 de üretilebilir. Tepsi kapatılır, ayarlar `build/shot-data` altında tutulur.
 
 Kullanım:  python tools/screenshot.py
-Çıktı:     docs/ekran-ana.png, ekran-detay.png, ekran-ayarlar.png,
-           ekran-portfoy.png, ekran-alarm.png
+Çıktı:     docs/ekran-ana.png, docs/ekran-detay.png
 """
 import json
 import os
@@ -40,27 +39,23 @@ POSITIONS = {
     "MSFT": {"qty": 6, "avg": 405.2},
     "NVDA": {"qty": 8, "avg": 118.7, "target": 200},
 }
-ALARMS = {"AAPL": {"above": 240, "below": 200}, "NVDA": {"pct": 3}}
 
 
 def write_config():
-    payload = {
-        "symbols": SYMBOLS,
-        "theme": "gece",
-        "opacity": 1.0,
-        "density": "normal",
-        "positions": POSITIONS,
-        "alarms": ALARMS,
-        "sort_mode": "manual",
-        "portfolio_show_cost": True,
-        "x": 150,
-        "y": 140,
-    }
     shutil.rmtree(DATA_DIR, ignore_errors=True)
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(os.path.join(DATA_DIR, "config.json"), "w",
               encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+        json.dump({
+            "symbols": SYMBOLS,
+            "theme": "gece",
+            "opacity": 1.0,
+            "density": "normal",
+            "positions": POSITIONS,
+            "portfolio_show_cost": True,
+            "x": 150,
+            "y": 140,
+        }, f, indent=2)
 
 
 def walk(seed, end, n=78, amp=0.012):
@@ -80,13 +75,11 @@ def make_quote(symbol, include_prepost=True):
     prev = price / (1.0 + pct / 100.0)
     closes = walk(symbol, price)
     ohlc, volumes, times = [], [], []
-    now = int(time.time())
-    step = 300
+    now, step = int(time.time()), 300
     for i, close in enumerate(closes):
         opener = closes[i - 1] if i else prev
-        high = max(opener, close) * 1.0016
-        low = min(opener, close) * 0.9984
-        ohlc.append((opener, high, low, close))
+        ohlc.append((opener, max(opener, close) * 1.0016,
+                     min(opener, close) * 0.9984, close))
         volumes.append(int(600_000 + abs(close - opener) * 2_500_000
                            + (i % 7) * 90_000))
         times.append(now - (len(closes) - i) * step)
@@ -129,8 +122,8 @@ def make_quote(symbol, include_prepost=True):
 def make_series(symbol, tf):
     """1H / 1A / 1Y sekmeleri için sabit sahte seri."""
     count = {"1H": 110, "1A": 62, "1Y": 150}[tf]
-    price = PRICES[symbol]
     step = {"1H": 1800, "1A": 86400, "1Y": 86400}[tf]
+    price = PRICES[symbol]
     now = int(time.time())
     closes = walk("%s-%s" % (symbol, tf), price, count, amp=0.02)
     ohlc, volumes, times = [], [], []
@@ -144,92 +137,34 @@ def make_series(symbol, tf):
             "volumes": volumes, "ohlc": ohlc}
 
 
-class Shooter:
-    """Arka planı pencere bbox'ına kurup ekran görüntüsü alır."""
-
-    def __init__(self, app, tk):
-        self.app = app
-        self.tk = tk
-        self.backdrop = None
-
-    def _drop_backdrop(self):
-        if self.backdrop is not None:
+def grab(app, tk, boxes, name, top=None):
+    """boxes: [(x, y, w, h), ...]; birleşimi arka planla birlikte kırpar."""
+    x1 = min(b[0] for b in boxes) - MARGIN
+    y1 = min(b[1] for b in boxes) - MARGIN
+    x2 = max(b[0] + b[2] for b in boxes) + MARGIN
+    y2 = max(b[1] + b[3] for b in boxes) + MARGIN
+    backdrop = tk.Toplevel(app.root)
+    backdrop.overrideredirect(True)
+    backdrop.configure(bg=BACKDROP)
+    backdrop.attributes("-topmost", True)
+    backdrop.geometry("%dx%d+%d+%d" % (x2 - x1, y2 - y1, x1, y1))
+    backdrop.lift()
+    for window in (app.root, top):
+        if window is not None:
             try:
-                self.backdrop.destroy()
-            except self.tk.TclError:
-                pass
-            self.backdrop = None
-
-    def grab(self, boxes, name, top=None):
-        """boxes: [(x, y, w, h), ...]; birleşim kırpılır."""
-        x1 = min(b[0] for b in boxes) - MARGIN
-        y1 = min(b[1] for b in boxes) - MARGIN
-        x2 = max(b[0] + b[2] for b in boxes) + MARGIN
-        y2 = max(b[1] + b[3] for b in boxes) + MARGIN
-        self._drop_backdrop()
-        self.backdrop = self.tk.Toplevel(self.app.root)
-        self.backdrop.overrideredirect(True)
-        self.backdrop.configure(bg=BACKDROP)
-        self.backdrop.attributes("-topmost", True)
-        self.backdrop.geometry("%dx%d+%d+%d" % (x2 - x1, y2 - y1, x1, y1))
-        self.backdrop.lift()
-        try:
-            self.app.root.lift()
-        except self.tk.TclError:
-            pass
-        if top is not None:
-            try:
-                top.lift()
-            except self.tk.TclError:
-                pass
-        self.app.root.update_idletasks()
-        self.app.root.update()
-        time.sleep(0.25)
-        path = os.path.join(SHOT_DIR, name)
-        ImageGrab.grab(bbox=(x1, y1, x2, y2)).save(path)
-        print("yazıldı: docs/%s" % name)
-        self._drop_backdrop()
-        return path
-
-
-def _walk(widget):
-    yield widget
-    for child in widget.winfo_children():
-        yield from _walk(child)
-
-
-def expand_scrollable(dlg, tk):
-    """Kısa pencerede kayan içeriği tam boy göster; kaydırma çubuğunu gizle."""
-    for widget in _walk(dlg):
-        if isinstance(widget, tk.Canvas):
-            bbox = widget.bbox("all")
-            if bbox and bbox[3] > widget.winfo_height():
-                widget.configure(height=bbox[3] - bbox[1] + 4)
-    dlg.update_idletasks()
-    for widget in _walk(dlg):
-        if isinstance(widget, tk.Scrollbar):
-            try:
-                widget.pack_forget()
-                widget.grid_forget()
+                window.lift()
             except tk.TclError:
                 pass
-    width = max(dlg.winfo_width(), dlg.winfo_reqwidth())
-    height = max(dlg.winfo_height(), dlg.winfo_reqheight())
-    dlg.geometry("%dx%d" % (width, height))
-    dlg.update_idletasks()
-
-
-def new_app(sw, scale):
-    os.environ["SW_SCALE"] = "%.2f" % scale
-    app = sw.StockWidget()
-    app.check_updates = lambda silent=False: None
     app.root.update_idletasks()
     app.root.update()
-    data = {sym: make_quote(sym) for sym in SYMBOLS}
-    app.apply_data(data, False)
-    app.root.update_idletasks()
-    app.root.update()
-    return app
+    time.sleep(0.25)
+    ImageGrab.grab(bbox=(x1, y1, x2, y2)).save(
+        os.path.join(SHOT_DIR, name))
+    print("yazıldı: docs/%s" % name)
+    try:
+        backdrop.destroy()
+    except tk.TclError:
+        pass
 
 
 def stop(app):
@@ -244,6 +179,7 @@ def stop(app):
 
 def main():
     os.environ["SW_DISABLE_TRAY"] = "1"
+    os.environ["SW_SCALE"] = "2.0"
     os.environ.pop("SW_SMOKE", None)
     os.makedirs(SHOT_DIR, exist_ok=True)
     write_config()
@@ -257,15 +193,17 @@ def main():
     # Gerçek kısayol kaydı, çalışan kopyayla çakışıp "kaydedilemedi" gösterirdi.
     sw.hotkey_loop = lambda events, stop_flag: events.put("registered")
 
-    # --- 1) kart + detay paneli (2x) ---
-    app = new_app(sw, 2.0)
-    shoot = Shooter(app, tk)
+    app = sw.StockWidget()
+    app.check_updates = lambda silent=False: None
+    app.root.update_idletasks()
+    app.root.update()
+    app.apply_data({sym: make_quote(sym) for sym in SYMBOLS}, False)
     app.root.geometry("+150+140")
     app.root.update()
 
     box = (app.root.winfo_rootx(), app.root.winfo_rooty(),
            app.root.winfo_width(), app.root.winfo_height())
-    shoot.grab([box], "ekran-ana.png")
+    grab(app, tk, [box], "ekran-ana.png")
 
     app.open_detail("AAPL")
     for _ in range(30):
@@ -275,42 +213,7 @@ def main():
     if panel is not None:
         pbox = (panel.win.winfo_rootx(), panel.win.winfo_rooty(),
                 panel.win.winfo_width(), panel.win.winfo_height())
-        shoot.grab([box, pbox], "ekran-detay.png", top=panel.win)
-    stop(app)
-
-    # --- 1b) açık tema kartı ---
-    app = new_app(sw, 2.0)
-    shoot = Shooter(app, tk)
-    app.set_theme("acik")
-    app.root.geometry("+150+140")
-    app.root.update()
-    box = (app.root.winfo_rootx(), app.root.winfo_rooty(),
-           app.root.winfo_width(), app.root.winfo_height())
-    shoot.grab([box], "ekran-acik.png")
-    app.set_theme("gece")        # sonraki aşama koyu temayla devam etsin
-    stop(app)
-
-    # --- 2) pencereler (1.5x) ---
-    app = new_app(sw, 1.5)
-    shoot = Shooter(app, tk)
-    app.root.geometry("+150+140")
-    app.root.update()
-    app.root.withdraw()          # kart, iletişim kutularının üstüne binmesin
-
-    for opener, anchor, name in (
-            ("open_settings_editor", (110, 40), "ekran-ayarlar.png"),
-            ("open_portfolio_editor", (110, 40), "ekran-portfoy.png")):
-        dlg = getattr(app, opener)()
-        dlg.update_idletasks()
-        expand_scrollable(dlg, tk)
-        dlg.geometry("+%d+%d" % anchor)
-        dlg.update_idletasks()
-        dlg.update()
-        dbox = (dlg.winfo_rootx(), dlg.winfo_rooty(),
-                dlg.winfo_width(), dlg.winfo_height())
-        shoot.grab([dbox], name, top=dlg)
-        dlg.destroy()
-        app.root.update()
+        grab(app, tk, [box, pbox], "ekran-detay.png", top=panel.win)
 
     stop(app)
     shutil.rmtree(DATA_DIR, ignore_errors=True)

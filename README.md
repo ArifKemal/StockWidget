@@ -5,8 +5,11 @@ Python + Tkinter; veri Yahoo Finance'in ücretsiz chart endpoint'inden gelir —
 API anahtarı, hesap, abonelik gerekmez. Arayüz Türkçe.
 
 <p align="center">
-  <img src="docs/ekran-ana.png" width="370" alt="StockWidget kartı — piyasa sonrası (PS) fiyatları">
-  <img src="docs/ekran-acik.png" width="370" alt="Aynı kart açık temada">
+  <img src="docs/ekran-ana.png" width="360" alt="StockWidget kartı — piyasa sonrası (PS) fiyatları">
+</p>
+
+<p align="center">
+  <img src="docs/ekran-detay.png" width="720" alt="Kart ve detay paneli — PS rozeti ve son kapanış satırı">
 </p>
 
 ## İndir
@@ -28,7 +31,7 @@ indir. 64-bit Windows 10/11 hedeflenir.
 
 1. Exe'yi çalıştır. İlk açılış birkaç saniye sürebilir (tek dosya geçici klasöre açılır).
 2. Widget sağ üstte belirir. **Ctrl+Alt+S** her yerden gösterir/gizler.
-3. Sağ tık menüsünden sembol, portföy, tema ve çıkış işlemleri yapılır.
+3. Sağ tık menüsünden sembol, portföy, alarm, sıralama, ayarlar ve çıkış işlemleri yapılır.
 
 Ayarlar ve log `%APPDATA%\StockWidget` altında tutulur. Ayarların exe'nin yanında
 kalmasını istersen:
@@ -61,8 +64,9 @@ $env:SW_DATA_DIR = "$PWD\veri"
   ve not, kartta maliyet gösterimi, para birimi başına ayrı toplamlar ve
   **CSV** dışa aktarma.
 - **Detay paneli:** satıra tıklayınca açılır; **1G / 1H / 1A / 1Y** aralıkları,
-  mum/çizgi geçişi, fareyle zaman-fiyat-yüzde okuması, gün aralığı ve 52 hafta
-  çubuğu. **Esc** (ya da sağ üstteki **✕**) paneli kapatır.
+  mum/çizgi geçişi, fareyle zaman-fiyat-yüzde okuması, hacim çubukları, sağ
+  fiyat ekseni, gün aralığı ve 52 hafta çubuğu. **Esc** (ya da sağ üstteki
+  **✕**) paneli kapatır.
 - **Görünüm:** Gece / Slate / Grafit / Açık tema, %60–100 opaklık, normal/kompakt,
   her zaman üstte.
 - **Hareket:** panel açılışı/kapanışı, sekme vurgusu, satır vurgusu ve kart
@@ -85,31 +89,6 @@ $env:SW_DATA_DIR = "$PWD\veri"
   ("önbellek" notuyla); canlı yanıt gelince tazelenir. Değişmeyen satırlar ve
   aynı sparkline yeniden çizilmez; Yahoo bağlantısı `requests.Session` ile
   yeniden kullanılır. Ağ isteği sayısı değişmez.
-
-## Görseller
-
-Detay paneli: **1G / 1H / 1A / 1Y** aralıkları, mum/çizgi geçişi, fareyle
-zaman-fiyat-yüzde okuması, hacim çubukları ve sağ fiyat ekseni.
-
-<p align="center">
-  <img src="docs/ekran-detay.png" width="820" alt="Kart ve detay paneli — PS rozeti, grafik ve istatistikler">
-</p>
-
-<table>
-  <tr>
-    <td align="center" valign="top">
-      <img src="docs/ekran-ayarlar.png" width="430" alt="Ayarlar penceresi">
-      <br><sub>Ayarlar — görünüm, veri ve davranış tek pencerede</sub>
-    </td>
-    <td align="center" valign="top">
-      <img src="docs/ekran-portfoy.png" width="360" alt="Portföy penceresi">
-      <br><sub>Portföy — maliyet, hedef fiyat, not ve K/Z</sub>
-    </td>
-  </tr>
-</table>
-
-Ekran görüntüleri `python tools/screenshot.py` ile gerçek arayüzden üretilir
-(sahte ama tutarlı veriyle, ağa çıkmadan).
 
 ## Veri kaynağı
 
@@ -139,6 +118,7 @@ konumu sıfırla), veri (yenileme aralıkları, piyasa öncesi/sonrası, kapalı
 durdur, elle yenile), davranış (otomatik başlat, ✕ davranışı) ve gelişmiş
 (ayar klasörü). Değişiklikler anında uygulanır; **Sıfırla** yalnızca ayarları
 varsayılana döndürür (semboller, portföy ve otomatik başlatma korunur).
+Pencerenin altından Semboller, Portföy ve Alarmlar pencereleri açılır.
 
 `%APPDATA%\StockWidget\config.json` (portatif modda `SW_DATA_DIR` altında).
 Bozuk alan uygulamayı kilitlemez, varsayılana döner; dosya hiç okunamazsa

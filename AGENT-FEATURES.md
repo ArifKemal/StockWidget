@@ -3,29 +3,19 @@
 Bu dosya, sonraki ajanların kodu yeniden keşfetmeden değişiklik yapabilmesi
 için **girdi/çıktı, veri akışı ve değişmez (invariant) haritası** verir.
 Kullanıcı dokümanı `README.md`, genel mimari `AGENT.md`'dir; bu dosya
-`feature/free-pack` turunun sözleşmesidir.
+ücretsiz paket turunun sözleşmesidir.
 
 ## Dal, commit ve geri alma
 
 | Ne | Değer |
 |---|---|
-| Çalışma dalı | `feature/free-pack` → `f49011e` + bu doküman commit'i |
+| Dal | `main` (ücretsiz paket `dd384d9`'da `main`e fast-forward birleştirildi) |
 | Geri dönüş etiketi | `checkpoint/pre-free-pack-2026-11-20` → `b91eb95` |
-| `main` | Değişmedi; yalnızca kullanıcı onayıyla `--ff-only` merge |
+| Eski çalışma dalı | `feature/free-pack` birleştirildikten sonra **silindi** |
 
 ```powershell
-# denemek için
-git switch feature/free-pack
-
-# beğenilmezse (main zaten checkpoint'te)
-git switch main
-git branch -D feature/free-pack
-git push origin --delete feature/free-pack   # isteğe bağlı
-
-# beğenilirse
-git switch main
-git merge --ff-only feature/free-pack
-git push origin main
+# tüm paketi geri almak istersen (yeni bir dal üzerinde)
+git switch -c geri-al checkpoint/pre-free-pack-2026-11-20
 ```
 
 ## Config şeması

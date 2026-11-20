@@ -18,8 +18,8 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `version_info.txt` — exe sürüm bilgisi (PyInstaller)
 - `tools/bump_version.py` — sürümü kaynak + version_info + installer.iss'e yazar
 - `tools/screenshot.py` — README görsellerini gerçek uygulamadan üretir
-  (sahte veri, ağsız; kart/detay 2x, pencereler 1.5x; masaüstü sızmasın diye
-  backdrop topmost, kısayol thread'i "registered" ile değiştirilir)
+  (sabit sahte veri, ağsız, 2x; masaüstü sızmasın diye backdrop topmost,
+  kısayol thread'i "registered" ile değiştirilir)
 - `tools/ui_matrix.py` — tema × yoğunluk × `SW_SCALE` GUI matrisi (ağsız, traysiz)
 - `tools/render_manifests.py` — Winget/Scoop şablonlarını sürüm+hash ile doldurur
 - `packaging/winget`, `packaging/scoop` — ücretsiz dağıtım manifest şablonları
@@ -28,8 +28,7 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `toggle.vbs` — kaynak modunda masaüstü kısayolu (kurulu sürümde `StockWidget.exe --toggle`)
 - `install_startup.ps1` / `uninstall_startup.ps1` — eski kaynak modu otostart betikleri
 - `requirements.txt` — requests, pystray, pillow (pystray/pillow opsiyonel)
-- `docs/ekran-ana.png`, `docs/ekran-detay.png`, `docs/ekran-acik.png`,
-  `docs/ekran-ayarlar.png`, `docs/ekran-portfoy.png` — README ekran görüntüleri
+- `docs/ekran-ana.png`, `docs/ekran-detay.png` — README ekran görüntüleri
   (`tools/screenshot.py` üretir; veri sahte, ağ yok)
 - `docs/imzalama.md` — kod imzalama (SmartScreen / SignPath) durumu ve adımları
 - `config.json` / `sw.log` / `snapshot.json` / `update.json` — kaynak modunda çalışma zamanı dosyaları, `.gitignore`'da
@@ -574,3 +573,17 @@ Yeni özellikler ayrı dalda; main değişmedi.
 8. **Bilinçli sınırlar.** Otomatik güncelleme indirme yok (yalnızca bildirim);
    ABD dışı borsa tatil takvimi yok; UPX/Nuitka denenmedi (AV/risk); SignPath
    başvurusu dış hesap gerektirir.
+
+## Dal düzeni ve README (2026-11-20)
+
+- `feature/free-pack` `main`e **fast-forward** birleştirildi, ardından silindi;
+  tek dal `main`. Geri dönüş için `checkpoint/pre-free-pack-2026-11-20`
+  etiketi duruyor. Uzak dalı silmek kullanıcıya bırakıldı.
+- README, galeri denemesinden önceki yapısına döndürüldü (iki görsel + İndir +
+  Hızlı başlangıç + Özellikler + Veri kaynağı + Ayarlar). İçerik güncel:
+  alarm, sıralama, klavye, portföy (hedef/not/CSV), hacim + fiyat ekseni,
+  `alarms` / `sort_mode` / `portfolio_show_cost` anahtarları.
+- `tools/screenshot.py` sadeleştirildi: yalnızca `ekran-ana.png` ve
+  `ekran-detay.png` üretir; veri sabit (ağ yok), backdrop topmost, kısayol
+  thread'i "registered" ile değiştirilir. Diğer üç görsel kaldırıldı.
+- Not: push yalnızca kullanıcı isterse yapılır.
