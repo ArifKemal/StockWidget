@@ -4,6 +4,7 @@ import datetime
 import json
 import logging
 import os
+import shutil
 import tempfile
 import threading
 import time
@@ -770,6 +771,296 @@ class DetailSeriesTest(unittest.TestCase):
         self.assertFalse(panel._series_stale("1H"))
         panel.series_ts["1H"] = time.time() - sw.TF_TTL["1H"] - 1
         self.assertTrue(panel._series_stale("1H"))
+
+
+class SnapshotTest(unittest.TestCase):
+    """Açılışta son fiyatlar gösterilebilmeli; bozuk dosya sorun çıkarmamalı."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="swsnap-")
+        self.path = os.path.join(self.dir, "snapshot.json")
+        self._patch = mock.patch.object(sw, "SNAPSHOT_FILE", self.path)
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    @staticmethod
+    def _quote(**over):
+        info = {"price": "10.5", "prev_close": "10.0",
+                "change_pct": "5.0", "change_abs": "0.5",
+                "spark": [1, 2], "spark_times": [0, 60],
+                "spark_volumes": [], "spark_ohlc": [], "name": "Test"}
+        info.update(over)
+        return info
+
+    def test_roundtrip_filters_and_coerces(self):
+        sw.save_snapshot({"AAPL": self._quote(), "MSFT": self._quote(),
+                          "BAD": self._quote(price=None)})
+        quotes, ts = sw.load_snapshot(["AAPL", "EXIT"])
+        self.assertEqual(sorted(quotes), ["AAPL"])
+        self.assertEqual(quotes["AAPL"]["price"], 10.5)
+        self.assertEqual(quotes["AAPL"]["change_pct"], 5.0)
+        self.assertEqual(quotes["AAPL"]["spark"], [1, 2])
+        self.assertIsInstance(ts, float)
+        self.assertGreater(ts, 0)
+
+    def test_empty_snapshot_is_not_written(self):
+        sw.save_snapshot({})
+        self.assertFalse(os.path.exists(self.path))
+        self.assertEqual(sw.load_snapshot(["AAPL"]), ({}, None))
+
+    def test_corrupt_snapshot_is_ignored(self):
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write("{ bozuk")
+        self.assertEqual(sw.load_snapshot(["AAPL"]), ({}, None))
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump({"quotes": []}, f)
+        self.assertEqual(sw.load_snapshot(["AAPL"]), ({}, None))
+
+    def test_corrupt_fields_are_sanitized(self):
+        sw.save_snapshot({"AAPL": {
+            "price": 10, "prev_close": 9, "change_pct": 1,
+            "spark": ["x", None, "11", 12],
+            "spark_times": [1, "a"],
+            "spark_ohlc": [[1, 2, 3, 4], [1, 2], "x",
+                           [1, 2, None, 4], [9, 8, 7, 6]],
+            "name": 5, "currency": None, "ext_session": "after"}})
+        q = sw.load_snapshot(["AAPL"])[0]["AAPL"]
+        self.assertEqual(q["spark"], [11.0, 12.0])
+        self.assertEqual(q["spark_times"], [1.0])
+        self.assertEqual(q["spark_ohlc"],
+                         [(1.0, 2.0, 3.0, 4.0), (9.0, 8.0, 7.0, 6.0)])
+        self.assertEqual(q["name"], "AAPL")
+        self.assertEqual(q["currency"], "")
+        self.assertIsNone(q["ext_session"])
+
+    def test_zero_prev_close_rejected(self):
+        # Sıfıra bölme değişim yüzdesinde çökme demek
+        sw.save_snapshot({"AAPL": self._quote(prev_close=0)})
+        self.assertEqual(sw.load_snapshot(["AAPL"])[0], {})
+
+    def test_missing_spark_lists_default_empty(self):
+        sw.save_snapshot({"AAPL": {"price": 1, "prev_close": 1,
+                                   "change_pct": 0,
+                                   "spark": "bozuk"}})
+        quotes, _ = sw.load_snapshot(["AAPL"])
+        self.assertEqual(quotes["AAPL"]["spark"], [])
+        self.assertEqual(quotes["AAPL"]["spark_times"], [])
+        self.assertEqual(quotes["AAPL"]["change_abs"], 0.0)
+
+
+class MeiCleanupTest(unittest.TestCase):
+    """onefile çökmelerinden kalan eski _MEI klasörleri temizlenmeli."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="swmei-")
+        self.cur = os.path.join(self.dir, "_MEIcur")
+        self.old = os.path.join(self.dir, "_MEIold")
+        self.fresh = os.path.join(self.dir, "_MEInew")
+        self.other = os.path.join(self.dir, "baska")
+        for p in (self.cur, self.old, self.fresh, self.other):
+            os.makedirs(p)
+        past = time.time() - 7200
+        os.utime(self.old, (past, past))
+        self._envi = mock.patch.dict(os.environ,
+                                     {"TEMP": self.dir, "TMP": self.dir})
+        self._envi.start()
+        self._mei = mock.patch.object(sw.sys, "_MEIPASS", self.cur,
+                                      create=True)
+        self._mei.start()
+
+    def tearDown(self):
+        self._mei.stop()
+        self._envi.stop()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_removes_only_stale_mei_dirs(self):
+        with mock.patch.object(sw, "FROZEN", True):
+            sw.cleanup_stale_mei(max_age=3600)
+        self.assertTrue(os.path.isdir(self.cur))
+        self.assertTrue(os.path.isdir(self.fresh))
+        self.assertTrue(os.path.isdir(self.other))
+        self.assertFalse(os.path.exists(self.old))
+
+    def test_noop_when_not_frozen(self):
+        with mock.patch.object(sw, "FROZEN", False):
+            sw.cleanup_stale_mei(max_age=0)
+        self.assertTrue(os.path.isdir(self.old))
+
+
+class UpdateCheckTest(unittest.TestCase):
+    def test_parse_version(self):
+        self.assertEqual(sw.parse_version("v1.2.3"), (1, 2, 3))
+        self.assertEqual(sw.parse_version("StockWidget 1.2"), (1, 2, 0))
+        self.assertEqual(sw.parse_version("1.10.9"), (1, 10, 9))
+        for bad in ("", "sürüm", "v", None, 5, [1]):
+            self.assertIsNone(sw.parse_version(bad), bad)
+
+    def test_newer_release(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        self.assertTrue(app._newer_release({"version": "1.2.0"}))
+        self.assertTrue(app._newer_release({"version": "1.10.0"}))
+        self.assertFalse(app._newer_release({"version": "1.1.0"}))
+        self.assertFalse(app._newer_release({"version": "1.0.9"}))
+        self.assertFalse(app._newer_release({"version": "bozuk"}))
+        self.assertFalse(app._newer_release({}))
+        self.assertFalse(app._newer_release(None))
+
+    def test_check_latest_release_parses_tag(self):
+        with mock.patch.object(sw.requests, "get",
+                               return_value=_Resp({"tag_name": "v1.2.0",
+                                                   "html_url": "https://x"})):
+            info = sw.check_latest_release()
+        self.assertEqual(info["version"], "1.2.0")
+        self.assertEqual(info["url"], "https://x")
+        self.assertIsInstance(info["ts"], float)
+
+    def test_check_latest_release_uses_name(self):
+        with mock.patch.object(sw.requests, "get",
+                               return_value=_Resp({"name": "StockWidget 1.3.1",
+                                                   "html_url": "https://y"})):
+            self.assertEqual(sw.check_latest_release()["version"], "1.3.1")
+
+    def test_check_latest_release_bad_payloads(self):
+        payloads = [None, [], {}, {"tag_name": "v1.0.0"},
+                    {"tag_name": "bozuk", "html_url": "https://x"},
+                    {"tag_name": "v1.0.0", "html_url": 5}]
+        for payload in payloads:
+            with mock.patch.object(sw.requests, "get",
+                                   return_value=_Resp(payload)):
+                self.assertIsNone(sw.check_latest_release(), payload)
+
+    def test_check_latest_release_network_error(self):
+        with mock.patch.object(sw.requests, "get",
+                               side_effect=sw.requests.exceptions.ConnectionError):
+            self.assertIsNone(sw.check_latest_release())
+        with mock.patch.object(sw.requests, "get",
+                               return_value=_Resp({}, status=500)):
+            self.assertIsNone(sw.check_latest_release())
+
+    def test_manual_check_reports_when_no_data(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app._update_busy = True
+        app.root = mock.Mock()
+        with mock.patch.object(sw, "messagebox") as mb:
+            app._update_done(None, False)
+        mb.showwarning.assert_called_once()
+        self.assertFalse(app._update_busy)
+
+    def test_manual_check_says_up_to_date(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app._update_busy = True
+        app.root = mock.Mock()
+        with mock.patch.object(sw, "messagebox") as mb:
+            app._update_done({"version": sw.APP_VERSION,
+                              "url": "u", "ts": time.time()}, False)
+        self.assertTrue(mb.showinfo.called)
+        self.assertFalse(mb.askyesno.called)
+
+    def test_silent_update_does_not_pop_dialog(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app._update_busy = True
+        app.root = mock.Mock()
+        app.tray_icon = None
+        app.menu = mock.Mock()
+        app._menu_update_index = 7
+        with mock.patch.object(sw, "messagebox") as mb, \
+                mock.patch.object(sw, "write_update_cache") as cache:
+            app._update_done({"version": "9.9.9", "url": "u",
+                              "ts": time.time()}, True)
+        self.assertFalse(mb.askyesno.called)
+        self.assertFalse(mb.showinfo.called)
+        self.assertTrue(app.menu.entryconfig.called)
+        self.assertFalse(cache.called)   # tepsi yoksa uyarı da yok
+
+    def test_manual_check_ignores_fresh_cache(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.root = mock.Mock()
+        app._update_busy = True
+        fresh = {"version": "1.1.0", "url": "u", "ts": time.time()}
+        newer = {"version": "9.9.9", "url": "u", "ts": time.time()}
+        with mock.patch.object(sw, "read_update_cache", return_value=fresh), \
+                mock.patch.object(sw, "check_latest_release",
+                                 return_value=newer) as check, \
+                mock.patch.object(sw, "write_update_cache") as cache:
+            app._update_worker(False)
+        check.assert_called_once()
+        cache.assert_called_once_with(newer)
+        self.assertEqual(app.root.after.call_args[0][0], 0)
+
+    def test_silent_check_uses_fresh_cache(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.root = mock.Mock()
+        app._update_busy = True
+        fresh = {"version": "1.1.0", "url": "u", "ts": time.time()}
+        with mock.patch.object(sw, "read_update_cache", return_value=fresh), \
+                mock.patch.object(sw, "check_latest_release") as check, \
+                mock.patch.object(sw, "write_update_cache") as cache:
+            app._update_worker(True)
+        check.assert_not_called()
+        cache.assert_not_called()
+
+    def test_manual_update_falls_back_to_releases_page(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.root = mock.Mock()
+        app.menu = mock.Mock()
+        app._menu_update_index = 0
+        with mock.patch.object(sw, "messagebox") as mb, \
+                mock.patch.object(sw, "webbrowser") as wb:
+            mb.askyesno.return_value = True
+            app._update_busy = True
+            app._update_done({"version": "9.9.9"}, False)   # url yok
+            wb.open.assert_called_once_with(sw.RELEASES_URL)
+            wb.open.reset_mock()
+            app._update_busy = True
+            app._update_done({"version": "9.9.9",
+                              "url": "https://github.com/x"}, False)
+            wb.open.assert_called_once_with("https://github.com/x")
+
+    def test_notify_only_once_per_version(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.tray_icon = mock.Mock()
+        info = {"version": "9.9.9", "url": "u", "ts": time.time(),
+                "notified": "9.9.9"}
+        with mock.patch.object(sw, "write_update_cache") as cache:
+            app._notify_update(info)
+            self.assertFalse(app.tray_icon.notify.called)
+            self.assertFalse(cache.called)
+            info.pop("notified")
+            app._notify_update(info)
+            self.assertTrue(cache.called)
+        self.assertTrue(app.tray_icon.notify.called)
+        self.assertEqual(info["notified"], "9.9.9")
+
+
+class UpdateCacheTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="swupd-")
+        self.path = os.path.join(self.dir, "update.json")
+        self._patch = mock.patch.object(sw, "UPDATE_FILE", self.path)
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_roundtrip_and_validation(self):
+        self.assertIsNone(sw.read_update_cache())
+        info = {"version": "1.2.0", "url": "https://x", "ts": 1.0}
+        sw.write_update_cache(info)
+        self.assertEqual(sw.read_update_cache(), info)
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write("[1, 2]")
+        self.assertIsNone(sw.read_update_cache())
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write("{ bozuk")
+        self.assertIsNone(sw.read_update_cache())
+
+    def test_write_failure_is_silent(self):
+        sw.UPDATE_FILE = self.dir          # dosya değil, klasör
+        sw.write_update_cache({"version": "1.0.0"})
 
 
 if __name__ == "__main__":

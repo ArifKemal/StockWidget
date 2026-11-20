@@ -22,8 +22,8 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `requirements.txt` — requests, pystray, pillow (pystray/pillow opsiyonel)
 - `docs/ekran-ana.png`, `docs/ekran-detay.png` — README ekran görüntüleri
 - `docs/imzalama.md` — kod imzalama (SmartScreen / SignPath) durumu ve adımları
-- `config.json` / `sw.log` — kaynak modunda çalışma zamanı dosyaları, `.gitignore`'da
-- `%APPDATA%\StockWidget\` — kurulu/portatif sürümde ayar + log (SW_DATA_DIR ile değiştirilebilir)
+- `config.json` / `sw.log` / `snapshot.json` / `update.json` — kaynak modunda çalışma zamanı dosyaları, `.gitignore`'da
+- `%APPDATA%\StockWidget\` — kurulu/portatif sürümde ayar + log + son fiyatlar (SW_DATA_DIR ile değiştirilebilir)
 - `build/`, `dist/`, `dist-onefile/`, `Output/` — derleme çıktıları, `.gitignore`'da
 
 ## Mimari kuralları (bozmadan değişiklik yap)
@@ -34,6 +34,12 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
   (`_create_tray_icon`); sadece `refresh_now` (`threading.Event.set`) thread-safe olup doğrudan çağrılabilir.
 - Her dış olay kuyruk üzerinden gelir: `self.queue` (fiyat verisi + offline bayrağı),
   `self.hotkey_queue` (kısayol olayları: `registered` / `unavailable` / `toggle`).
+- **Güncelleme denetimi** ayrı bir daemon thread'de ağ isteği yapar; sonuç
+  `root.after(0, ...)` ile ana thread'e taşınır. `update.json` en fazla 24 saatte
+  bir tazelenir (`UPDATE_TTL`), böylece sessiz denetim günde 1 GitHub isteğidir.
+- **`snapshot.json`** yalnızca ana thread'de (`apply_data`) atomik yazılır; açılışta
+  `__init__` içinde `build_ui`'den önce okunur. İçeriği elle bozulmuş olabileceği
+  için `load_snapshot` tüm sayıları ve grafik listelerini yeniden doğrular.
 - Döngüler `self.stop_flag` (threading.Event) ile durur; çıkışta thread'ler daemon olduğu için
   süreç sonlanır, kaynaklar (hotkey kaydı, mutex) serbest kalır.
 - Tek örnek: `acquire_single_instance()` adlandırılmış mutex. İkinci kopya `--toggle`
@@ -412,6 +418,10 @@ python -m PyInstaller --noconfirm --clean --distpath dist-onefile StockWidget-on
 dist-onefile\StockWidget.exe --version
 dist-onefile\StockWidget.exe --paths
 
+:: donmus duman (tek dosya; %TEMP% altina acilir, ayarlari kirletmez)
+python -m PyInstaller --noconfirm --clean --distpath build\test-snap --workpath build\work-snap StockWidget-onefile.spec
+python tools\smoke_frozen.py   :: A: SW_SMOKE+snapshot+_MEI temizligi, B: --quit, C: ikinci kopya
+
 python -m PyInstaller --noconfirm --clean StockWidget.spec
 dist\StockWidget\StockWidget.exe --version
 dist\StockWidget\StockWidget.exe --paths
@@ -434,7 +444,7 @@ python stock_widget.py
 
 ## Dayanıklılık turu (1.1.1 hazırlığı)
 
-Kod denetiminde çıkan hatalar giderildi; her madde testle doğrulandı (55 test).
+Kod denetiminde çıkan hatalar giderildi; her madde testle doğrulandı (77 test).
 
 1. **Config artık çökemez.** `load_config` kök nesnenin `dict` olmasını, `theme`
    tipini, `x`/`y`/`opacity`/`refresh_*` sayısallığını, sembolleri (`clean_symbols`:
@@ -469,9 +479,34 @@ Kod denetiminde çıkan hatalar giderildi; her madde testle doğrulandı (55 tes
     release `SHA256SUMS.txt` üretir.
 11. **Temizlik.** Kullanılmayan `traceback` importu ve ölü `last_ok` kaldırıldı;
     `ruff check` temiz.
+12. **Açılışta boş kart yok.** Başarılı her turdan sonra son fiyatlar
+    `snapshot.json`'a atomik yazılır; `StockWidget.__init__` bunu `build_ui`'den
+    önce okur. Dosya bozuk/elle değiştirilmişse sayısal alanlar ve grafik
+    listeleri `load_snapshot` içinde yeniden doğrulanır (geçersiz mumlar atılır,
+    `ext_session` yalnızca `pre`/`post`), yani bozuk snapshot da çökme nedeni
+    olamaz. Sembol listesinden çıkarılanlar dosyaya yazılmaz.
+13. **Güncelleme bildirimi.** Menüye "Güncelleme denetle…" eklendi; sessiz
+    denetim açılıştan 6 s sonra yapılır ve `update.json` ile **günde en fazla 1**
+    GitHub isteğine iner. Yeni sürüm varsa menü satırı "Yeni sürüm: x.y.z"
+    olur; tepsi varsa sürüm başına yalnızca bir kez bildirim gösterilir.
+    Elle denetim önbelleği atlar, sonucu (güncel / ulaşılamadı / indirilsin mi)
+    iletişim kutusuyla söyler. Uygulama kendi kendine indirme yapmaz.
+14. **onefile artıkları.** Donmuş modda açılışta `%TEMP%` altındaki 7 günden
+    eski `_MEI…` klasörleri silinir; çalışan dizin (`sys._MEIPASS`) ve yeni
+    klasörler korunur. Mutex alındıktan sonra çalıştığı için ikinci kopyayla
+    yarışmaz.
 
 Yeni testler: `ConfigRobustnessTest` (fuzz, BOM, kesik dosya, yedek kurtarma,
 atomik yazma, yazma hatası), `HolidayCalendarTest` (2000–2100 özellik testi),
 `QuoteParsingTest` (boş/bozuk yanıt, string fiyat, PÖ/PS filtresi, `Retry-After`),
 `FetchLoopTest` (429, kısmi hata), `RowRenderTest` (spark rengi), `VersionSyncTest`,
-`DetailSeriesTest`.
+`DetailSeriesTest`, `SnapshotTest` (roundtrip, bozuk dosya, alan temizleme),
+`MeiCleanupTest` (yaş/çalışan dizin ayrımı), `UpdateCheckTest`/`UpdateCacheTest`
+(sürüm karşılaştırma, önbellek TTL, sessiz bildirim).
+
+Donmuş doğrulama (2026-11-20, `tools/smoke_frozen.py`): onefile `--version` →
+`StockWidget 1.1.0`; **A)** `SW_SMOKE` exit 0 (~16 sn), `snapshot.json` yazıldı,
+sahte eski `_MEI` klasörü silindi; **B)** `--quit` çalışan kopyayı ~3 sn'de
+temiz kapattı; **C)** argümansız ikinci kopya sessizce çıktı, birinci yaşamaya
+devam etti, sonra `--quit` ile kapandı. Not: `cmd /c` GUI uygulamayı beklemez;
+`--quit` doğrulaması için `Start-Process`/Python `subprocess` ile bekle.

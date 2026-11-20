@@ -12,8 +12,10 @@ import calendar
 import logging
 import shutil
 import threading
+import webbrowser
 import tkinter as tk
 import tkinter.font as tkfont
+from tkinter import messagebox
 from logging.handlers import RotatingFileHandler
 
 import requests
@@ -33,6 +35,12 @@ except ImportError:
 APP_NAME = "StockWidget"
 APP_VERSION = "1.1.0"
 FROZEN = bool(getattr(sys, "frozen", False))
+
+UPDATE_URL = ("https://api.github.com/repos/ArifKemal/StockWidget/"
+              "releases/latest")
+RELEASES_URL = "https://github.com/ArifKemal/StockWidget/releases/latest"
+UPDATE_TTL = 24 * 3600          # güncelleme kontrolü: günde en fazla 1 istek
+VERSION_RE = re.compile(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?")
 
 # PyInstaller: kod _MEIPASS'e açılır, kalıcı veri oraya yazılamaz.
 ASSET_DIR = (getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
@@ -56,6 +64,8 @@ def _data_dir():
 DATA_DIR = _data_dir()
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 LOG_FILE = os.path.join(DATA_DIR, "sw.log")
+SNAPSHOT_FILE = os.path.join(DATA_DIR, "snapshot.json")
+UPDATE_FILE = os.path.join(DATA_DIR, "update.json")
 # Eski sürümler config'i script/exe yanına yazıyordu; ilk açılışta taşınır.
 LEGACY_CONFIG = os.path.join(
     os.path.dirname(os.path.abspath(sys.executable)) if FROZEN else BASE_DIR,
@@ -617,6 +627,185 @@ def save_config(cfg):
         except OSError:
             pass
         return False
+
+
+SNAPSHOT_NUM_FIELDS = (
+    "price", "prev_close", "change_pct", "change_abs",
+    "ext_price", "ext_change_pct", "ext_change_abs",
+    "open", "day_high", "day_low", "high_52w", "low_52w", "volume",
+)
+SNAPSHOT_LIST_FIELDS = ("spark", "spark_times", "spark_volumes")
+SNAPSHOT_MAX_POINTS = 500
+
+
+def _num_list(value):
+    """JSON listesini sonlu sayılara indirger; bozuk öğeleri atar."""
+    if not isinstance(value, list):
+        return []
+    out = []
+    for item in value[:SNAPSHOT_MAX_POINTS]:
+        num = _to_float(item)
+        if num is not None:
+            out.append(num)
+    return out
+
+
+def _ohlc_list(value):
+    """[[o, h, l, c], ...] -> geçerli (float, float, float, float) listesi."""
+    if not isinstance(value, list):
+        return []
+    out = []
+    for row in value[:SNAPSHOT_MAX_POINTS]:
+        if not isinstance(row, (list, tuple)) or len(row) < 4:
+            continue
+        nums = [_to_float(x) for x in row[:4]]
+        if any(x is None for x in nums):
+            continue
+        out.append(tuple(nums))
+    return out
+
+
+def load_snapshot(symbols):
+    """Son başarılı fiyatları okur: açılışta anında gösterim için."""
+    try:
+        with open(SNAPSHOT_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}, None
+    if not isinstance(data, dict):
+        return {}, None
+    quotes = data.get("quotes")
+    if not isinstance(quotes, dict):
+        return {}, None
+    out = {}
+    for sym in symbols or []:
+        info = quotes.get(sym)
+        if not isinstance(info, dict):
+            continue
+        price = _to_float(info.get("price"))
+        prev = _to_float(info.get("prev_close"))
+        pct = _to_float(info.get("change_pct"))
+        if price is None or not prev or pct is None:
+            continue
+        # Elle bozulmuş/yarım kalmış dosya çizim sırasında çökmesin:
+        # tüm sayısal alanlar ve grafik listeleri burada doğrulanır.
+        clean = {}
+        for key in SNAPSHOT_NUM_FIELDS:
+            clean[key] = _to_float(info.get(key))
+        for key in SNAPSHOT_LIST_FIELDS:
+            clean[key] = _num_list(info.get(key))
+        clean["spark_ohlc"] = _ohlc_list(info.get("spark_ohlc"))
+        clean["price"] = price
+        clean["prev_close"] = prev
+        clean["change_pct"] = pct
+        clean["change_abs"] = clean["change_abs"] or 0.0
+        for text_key in ("name", "currency", "exchange"):
+            text = info.get(text_key)
+            clean[text_key] = text if isinstance(text, str) else ""
+        clean["name"] = clean["name"] or sym
+        clean["ext_session"] = (info.get("ext_session")
+                                if info.get("ext_session") in ("pre", "post")
+                                else None)
+        out[sym] = clean
+    return out, _to_float(data.get("ts"))
+
+
+def save_snapshot(quotes):
+    """Son fiyatları diske yazar (atomik); hata uygulamayı etkilemez."""
+    if not quotes:
+        return
+    tmp = SNAPSHOT_FILE + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"ts": time.time(), "quotes": quotes}, f)
+        os.replace(tmp, SNAPSHOT_FILE)
+    except (OSError, TypeError, ValueError) as exc:
+        log.debug("snapshot yazılamadı: %s", exc)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+def cleanup_stale_mei(max_age=7 * 24 * 3600):
+    """Çökmelerden kalan eski PyInstaller `_MEIxxxx` klasörlerini siler.
+
+    Yalnızca bir haftadan eski klasörlere dokunur: aynı anda çalışan başka
+    bir onefile uygulamasının dizinini yanlışlıkla silmemek için.
+    """
+    if not FROZEN:
+        return
+    current = os.path.normcase(getattr(sys, "_MEIPASS", "") or "")
+    temp = os.environ.get("TEMP") or os.environ.get("TMP")
+    if not temp or not os.path.isdir(temp):
+        return
+    now = time.time()
+    try:
+        names = os.listdir(temp)
+    except OSError:
+        return
+    for name in names:
+        if not name.startswith("_MEI"):
+            continue
+        path = os.path.join(temp, name)
+        if os.path.normcase(path) == current or not os.path.isdir(path):
+            continue
+        try:
+            if now - os.path.getmtime(path) < max_age:
+                continue
+            shutil.rmtree(path, ignore_errors=True)
+            log.info("eski onefile klasörü silindi: %s", name)
+        except OSError:
+            pass
+
+
+def parse_version(text):
+    """'v1.2.3' -> (1, 2, 3); geçersizse None."""
+    if not isinstance(text, str):
+        return None
+    match = VERSION_RE.search(text.strip().lstrip("vV"))
+    if not match:
+        return None
+    return tuple(int(part or 0) for part in match.groups())
+
+
+def check_latest_release(timeout=5):
+    """GitHub'daki son sürümü sorar; ağ hatasında None döner."""
+    try:
+        resp = requests.get(UPDATE_URL, headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "StockWidget/%s" % APP_VERSION,
+        }, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json() or {}
+    except (requests.exceptions.RequestException, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    version = parse_version(data.get("tag_name") or data.get("name"))
+    url = data.get("html_url")
+    if not version or not isinstance(url, str):
+        return None
+    return {"version": ".".join(str(x) for x in version),
+            "url": url, "ts": time.time()}
+
+
+def read_update_cache():
+    """Son güncelleme kontrolünün sonucu (günde 1 istek için)."""
+    try:
+        with open(UPDATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def write_update_cache(info):
+    try:
+        with open(UPDATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(info, f)
+    except (OSError, TypeError, ValueError):
+        pass
 
 
 def fetch_quote(symbol, include_prepost=True):
@@ -1893,7 +2082,8 @@ class StockWidget:
         apply_palette(self.cfg["theme"])
         self.alpha = float(self.cfg["opacity"])
         self.density = self.cfg["density"]
-        self.last = {}
+        # Açılışta kart boş kalmasın: son başarılı fiyatlar anında gösterilir.
+        self.last, self._snap_ts = load_snapshot(self.cfg["symbols"])
         self.offline = False
         self._hover_row = None
 
@@ -1940,8 +2130,9 @@ class StockWidget:
         self._py = 0
         self._row_photos = {}
         self._chart_photo = None
-        self._data_ts = None
+        self._data_ts = self._snap_ts
         self._force_refresh = False
+        self._update_busy = False
         self._tray_ok = bool(TRAY_AVAILABLE and PIL_AVAILABLE)
         self._settings_dlg = None
         self._settings_last_lbl = None
@@ -1994,6 +2185,9 @@ class StockWidget:
         self.root.after(20000, self._status_tick)
         if os.environ.get("SW_SMOKE"):
             self.root.after(12000, self.exit_app)
+        else:
+            # Günde en fazla 1 GitHub isteği; sessizce yalnızca yenilik varsa bildirir.
+            self.root.after(6000, lambda: self.check_updates(silent=True))
 
     # ---------- personalization ----------
 
@@ -2018,6 +2212,8 @@ class StockWidget:
         m.add_cascade(label="Hızlı çıkar", menu=self.remove_menu)
         m.add_separator()
         m.add_command(label="Yenile", command=self.refresh_now)
+        self._menu_update_index = m.index("end") + 1
+        m.add_command(label="Güncelleme denetle…", command=self.check_updates)
         m.add_separator()
         m.add_command(label="Gizle", command=self.hide_window)
         m.add_command(label="Çıkış", command=self.exit_app)
@@ -2450,6 +2646,12 @@ class StockWidget:
         for sym, info in results.items():
             self.last[sym] = info
             self._render_row(sym, info)
+        if results:
+            # Sembol listesinden çıkarılanlar anlık görüntüye de yazılmasın.
+            keep = [s for s in (self.cfg.get("symbols") or []) if s in self.last]
+            if len(keep) != len(self.last):
+                self.last = {s: self.last[s] for s in keep}
+            save_snapshot(self.last)
         if offline:
             # Çevrimdışıyken başarısız satırların fiyatını da soluklaştır
             for sym, info in self.last.items():
@@ -3759,6 +3961,103 @@ class StockWidget:
                 log.warning("%s: %s", sym, exc)
         return results, failures, attempted, backoff
 
+    # ---------- güncelleme ----------
+
+    @staticmethod
+    def _newer_release(info):
+        """Yanıttaki sürüm çalışan sürümden yeniyse True."""
+        if not isinstance(info, dict):
+            return False
+        latest = parse_version(info.get("version"))
+        current = parse_version(APP_VERSION)
+        if not latest or not current:
+            return False
+        return latest > current
+
+    def check_updates(self, silent=False):
+        """GitHub'daki son sürümü denetler; önbellek sayesinde günde 1 istek."""
+        if self._update_busy or self.stop_flag.is_set():
+            return
+        self._update_busy = True
+        threading.Thread(target=self._update_worker,
+                         args=(bool(silent),), daemon=True).start()
+
+    def _update_worker(self, silent):
+        info = read_update_cache()
+        try:
+            fresh = (silent and time.time() - float(info.get("ts") or 0)
+                     < UPDATE_TTL)
+        except (AttributeError, TypeError, ValueError):
+            fresh = False
+        if not fresh:
+            fetched = check_latest_release()
+            if fetched:
+                write_update_cache(fetched)
+                info = fetched
+            else:
+                info = None
+        try:
+            # Tk yalnızca ana thread'de kullanılır (bkz. AGENT.md).
+            self.root.after(0, lambda: self._update_done(info, silent))
+        except (tk.TclError, RuntimeError):
+            self._update_busy = False
+
+    def _update_done(self, info, silent):
+        self._update_busy = False
+        if self._newer_release(info):
+            log.info("yeni sürüm bulundu: %s", info["version"])
+            self._set_update_hint(info)
+            if silent:
+                self._notify_update(info)
+            else:
+                msg = ("StockWidget %s hazır (bu sürüm %s).\n\n"
+                       "İndirme sayfası açılsın mı?"
+                       % (info["version"], APP_VERSION))
+                if messagebox.askyesno("Güncelleme", msg,
+                                       parent=self.root):
+                    url = info.get("url")
+                    if not (isinstance(url, str)
+                            and url.startswith("https://")):
+                        url = RELEASES_URL
+                    webbrowser.open(url)
+            return
+        if silent:
+            return
+        if info is None:
+            messagebox.showwarning(
+                "Güncelleme",
+                "Güncelleme bilgisi alınamadı.\nİnternet bağlantınızı "
+                "denetleyip yeniden deneyin.", parent=self.root)
+        else:
+            messagebox.showinfo("Güncelleme",
+                                "En son sürümü kullanıyorsunuz (%s)."
+                                % APP_VERSION, parent=self.root)
+
+    def _set_update_hint(self, info):
+        """Menüdeki güncelleme satırını yeni sürüme işaretle."""
+        idx = getattr(self, "_menu_update_index", None)
+        if idx is None:
+            return
+        try:
+            self.menu.entryconfig(idx, label="Yeni sürüm: %s" % info["version"])
+        except (tk.TclError, TypeError):
+            pass
+
+    def _notify_update(self, info):
+        """Aynı sürüm için her açılışta değil, yalnızca bir kez tepsi uyarısı."""
+        if info.get("notified") == info["version"]:
+            return
+        icon = self.tray_icon
+        if not icon:
+            return
+        try:
+            icon.notify("StockWidget %s hazır. Menüden indirebilirsiniz."
+                        % info["version"], APP_NAME)
+        except Exception:
+            return
+        info["notified"] = info["version"]
+        write_update_cache(info)
+
     # ---------- tray ----------
 
     @staticmethod
@@ -3978,6 +4277,7 @@ def main():
             log.info("ikinci kopya, çıkılıyor")
         return
     migrate_legacy_config()
+    cleanup_stale_mei()
     log.info("başladı (pid %s)", os.getpid())
     toggle_event = create_signal_event(TOGGLE_EVENT)
     quit_event = create_signal_event(QUIT_EVENT)

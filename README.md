@@ -44,7 +44,9 @@ $env:SW_DATA_DIR = "$PWD\veri"
 ## Özellikler
 
 - **Kart:** sembol, fiyat, günlük değişim, şirket adı ve mini grafik; sabit
-  genişlikli rakamlar, "son güncelleme" zamanı, piyasa durumu noktası.
+  genişlikli rakamlar, "son güncelleme" zamanı, piyasa durumu noktası. Açılışta
+  son bilinen fiyatlar `snapshot.json`'dan anında gösterilir; ilk yanıt gelince
+  tazelenir (boş kart beklemesi yok).
 - **Seans dışı:** piyasa öncesi/sonrası fiyat ve değişim, satırda ve detay
   panelinde **PÖ** / **PS** rozetiyle gösterilir. Değer, grafiği besleyen son
   5 dk barından okunur; bu yüzden kart, detay ve grafik her zaman aynı fiyatı
@@ -60,12 +62,17 @@ $env:SW_DATA_DIR = "$PWD\veri"
   göster/gizle kısa (90–130 ms) yumuşak geçişlerle yapılır; Windows'ta
   "animasyonları göster" kapalıysa hareketler otomatik devre dışı kalır.
 - **Tepsi:** göster/gizle, yenile, ayarlar, semboller, otomatik başlatma, çıkış.
+- **Güncelleme:** yeni sürüm günde en fazla bir kez (GitHub'a tek istek) denetlenir;
+  varsa menüde "Yeni sürüm: x.y.z" ve bir kez tepsi bildirimi olarak görünür.
+  Sağ tık → **Güncelleme denetle…** önbelleği atlar. Uygulama kendiliğinden
+  indirmez/kurmaz, yalnızca indirme sayfasını açar.
 - **Dayanıklılık:** varsayılan açıkken 15 dk, kapalıyken 60 dk yenileme (Ayarlar'dan
   değiştirilebilir); hata sonrası 90 s bekleme. HTTP 429 gelirse kalan semboller
   atlanır ve `Retry-After` başlığına göre (en az 1 dk) beklenir. NYSE tatilleri ve
   13:00 ET erken kapanışları (şükran sonrası, Noel arifesi, 3 Temmuz) kapalı sayılır.
   Tek kopya çalışır. "Piyasa kapalıyken durdur" seçilirse kapalıyken hiç istek
-  gönderilmez.
+  gönderilmez. Tek dosya sürümünün `%TEMP%` altında bıraktığı, bir haftadan eski
+  `_MEI…` klasörleri açılışta temizlenir.
 
 ## Veri kaynağı
 
@@ -112,6 +119,10 @@ anahtarlar korunur; geçersiz sembol/pozisyon satırları sessizce atılır.
 | `extended_hours` | `true` ise piyasa öncesi/sonrası (**PÖ**/**PS**) verisi gösterilir. |
 | `close_to_tray` | `true` ise **✕** tepsiye gizler; `false` ise çıkar. |
 | `positions` | `{ "AAPL": { "qty": 12, "avg": 185.4 } }` |
+
+Aynı klasörde `snapshot.json` (son fiyatların anlık kopyası) ve `update.json`
+(güncelleme denetiminin 24 saatlik önbelleği) tutulur. İkisi de silinebilir;
+uygulama bir sonraki çalışmasında yeniden oluşturur.
 
 ## Lisans
 
