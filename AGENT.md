@@ -8,6 +8,8 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `stock_widget.py` — uygulamanın tamamı (UI, veri çevrimi, tray, kısayol, portföy, ayarlar, otomatik başlatma)
 - `README.md` — kullanıcı dokümanı (indirme, hızlı başlangıç, özellikler, veri kaynağı, ayarlar)
 - `AGENT.md` — bu dosya: mimari kurallar + değişiklik günlüğü
+- `AGENT-FEATURES.md` — ücretsiz paket turunun ajan analiz haritası (config
+  şeması, fonksiyon sözleşmeleri, veri akışı, test kancaları, geri alma)
 - `test_stock_widget.py` — stdlib `unittest` birim testleri (ağa çıkmaz)
 - `LICENSE` — MIT (2026 Arif Kemal)
 - `StockWidget-onefile.spec` — PyInstaller **onefile** derleme tanımı (ana indirme)
@@ -535,6 +537,10 @@ devam etti, sonra `--quit` ile kapandı. Not: `cmd /c` GUI uygulamayı beklemez;
 
 Geri dönüş noktası: `checkpoint/pre-free-pack-2026-11-20` (b91eb95).
 Yeni özellikler ayrı dalda; main değişmedi.
+
+> Ayrıntılı, ajanlar için sözleşme düzeyi harita: **`AGENT-FEATURES.md`**
+> (config şeması, fonksiyon girdi/çıktıları, `apply_data` sırası, render
+> anahtarı, menü/kısayol kuralları, test kancaları, CI/release, geri alma).
 
 1. **Alarmlar.** `cfg["alarms"]`: sembol başına `above`, `below`, `pct`,
    `extended`. `clean_alarms` doğrular; `evaluate_alarm` eşik geçişinde bir kez
