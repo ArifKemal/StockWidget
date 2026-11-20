@@ -588,3 +588,10 @@ Yeni özellikler ayrı dalda; main değişmedi.
   `ekran-detay.png` üretir; veri sabit (ağ yok), backdrop topmost, kısayol
   thread'i "registered" ile değiştirilir. Diğer üç görsel kaldırıldı.
 - Not: push yalnızca kullanıcı isterse yapılır.
+- **CI onarımı (2026-11-20):** `audit` işi `requests==2.32.5` + `pillow==11.3.0`
+  pinlerinde 78 zafiyet buluyordu → `requests==2.34.2`, `pillow==13.0.0`
+  (pystray sabit). Uygulama ve testler yeni sürümlerle doğrulandı (PIL çizimleri
+  dahil). `build` işi, sessiz kurulum duman testinde sabit `StockWidget 0.0.0`
+  beklediği için düşüyordu; artık derlenen `dist\StockWidget\StockWidget.exe`
+  sürümüyle karşılaştırılıyor.
+- Bağımlılık PR'ları kapalı: Dependabot `open-pull-requests-limit: 0`.
