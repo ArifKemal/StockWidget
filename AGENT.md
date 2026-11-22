@@ -616,10 +616,11 @@ Yeni özellikler `feature/free-pack` üzerinde geliştirildi ve 2026-11-20'de
   sürümüyle karşılaştırılıyor.
 - Bağımlılık PR'ları kapalı: Dependabot `open-pull-requests-limit: 0`.
 
-## Tüm paketler turu (feature/all-packages)
+## Tüm paketler turu (main'e birleşti)
 
 Geri dönüş etiketi: `checkpoint/pre-all-packages-2026-11-22` (f99e523).
-Çalışma dalı: `feature/all-packages`.
+`feature/all-packages` fast-forward ile `main`e alındı ve yerel/uzak dal
+silindi; tek dal `main`.
 
 1. **Portföy geçmişi.** `portfolio-history.json` günlük/para birimi başına
    toplam tutar; `record_history` aynı gün aynı toplamda yazmaz. Portföy

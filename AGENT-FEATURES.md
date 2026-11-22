@@ -200,10 +200,11 @@ Ek araçlar:
   manifestler yalnızca üretilir, yayınlanmaz.
 - UPX/Nuitka denenmedi; onefile açılış maliyeti antivirüs taramasına bağlı.
 
-## Tüm paketler eki (feature/all-packages)
+## Tüm paketler eki (main'e birleşti)
 
 Geri dönüş: `checkpoint/pre-all-packages-2026-11-22` → `f99e523`.
-Dal: `feature/all-packages`. Bu bölüm yukarıdaki sözleşmelere eklenir.
+Dal: `main`; eski `feature/all-packages` fast-forward ile birleştirilip
+silindi. Bu bölüm yukarıdaki sözleşmelere eklenir.
 
 ### Yeni config anahtarları
 ```json

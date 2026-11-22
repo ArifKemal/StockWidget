@@ -33,8 +33,9 @@ Bu dosya oturumlar arasında unutulmaması gerekenleri tutar. Proje sözleşmesi
 
 ## Mevcut durum (2026-11-22)
 
-- Çalışma dalı: `feature/all-packages` → **7f6f2f7**, push edildi.
-- `main`: **f99e523** (değişmedi).
+- Tek dal: **main** → `0c983b6` (tüm paketler + düzeltmeler fast-forward
+  birleşti; `feature/all-packages` yerel ve uzakta silindi).
+- `main` önceki hali: `f99e523` (checkpoint).
 - Checkpoint'ler:
   - `checkpoint/pre-all-packages-2026-11-22` → f99e523
   - `checkpoint/pre-free-pack-2026-11-20` → b91eb95
@@ -99,8 +100,9 @@ python -m coverage report --include="stock_widget.py"
    aynı yola doğrula → uygulamayı yeniden başlat. Eski exe'yi yedekle.
 9. **Dependabot** `open-pull-requests-limit: 0` (bilinçli); güvenlik `pip-audit`
    ile. Yeni bağımlılık pinlerini CI audit doğrular.
-10. **Kaynak/yayın farkı:** `feature/all-packages` main'e merge edilmedi.
-    Kısayol kurulu onefile'ı açar; branch değişiklikleri otomatik yansımaz.
+10. **Kaynak/yayın farkı:** Kod ve kurulu onefile aynı içerikte; yeni kod
+    değişikliği yapılırsa kurulu exe tekrar güncellenmeden kısayol eski kodu
+    açar. Branch kalmadı; geliştirme `main` üzerinde ilerler.
 
 ## Bilinçli sınırlar / yapılmayacaklar
 
@@ -116,13 +118,9 @@ python -m coverage report --include="stock_widget.py"
 ## Geri alma / merge
 
 ```powershell
-# tüm paketleri geri al (main zaten checkpoint'te)
+# çalışma ağacı temizken checkpoint'e dön
+git switch -c geri-al checkpoint/pre-all-packages-2026-11-22
+# veya mevcut main'i checkpoint'e çekmek için (force):
 git switch main
-git branch -D feature/all-packages
-git push origin --delete feature/all-packages
-
-# beğenilirse
-git switch main
-git merge --ff-only feature/all-packages
-git push origin main
+git reset --hard checkpoint/pre-all-packages-2026-11-22
 ```
