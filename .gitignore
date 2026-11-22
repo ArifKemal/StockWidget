@@ -19,3 +19,6 @@ dist/
 dist-onefile/
 Output/
 *.zip
+
+# Yerel ajan hafizasi (repoya girmez)
+/AGENT-MEMORY.md

@@ -10,8 +10,8 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `AGENT.md` — bu dosya: mimari kurallar + değişiklik günlüğü
 - `docs/agent/AGENT-FEATURES.md` — ücretsiz paket turunun ajan analiz haritası (config
   şeması, fonksiyon sözleşmeleri, veri akışı, test kancaları, geri alma)
-- `docs/agent/AGENT-MEMORY.md` — oturumlar arası kalıcı notlar: kullanıcı tercihleri,
-  mevcut dal/kurulum durumu, regresyon tuzakları, yapılmayacaklar
+- `AGENT-MEMORY.md` — yalnızca yerel ajan hafızası; `.gitignore`'da, repoya
+  girmez (kullanıcı tercihleri, kurulum durumu, regresyon tuzakları)
 - `tests/test_stock_widget.py` — stdlib `unittest` birim testleri (ağa çıkmaz)
 - `market_calendar.py` — ABD/BIST/kripto profilleri, TR tatilleri (tipli modül)
 - `i18n.py` — TR/EN arayüz çevirisi; Tk metinlerini tek noktadan çevirir
@@ -51,7 +51,7 @@ Tek dal: **main**. Klasör düzeni:
 - `tests/test_stock_widget.py` — unittest
 - `assets/stock.ico` — kaynak + PyInstaller ikonu
 - `packaging/` — `.spec`, `installer.iss`, `version_info.txt`, Winget/Scoop
-- `docs/agent/AGENT-FEATURES.md`, `docs/agent/AGENT-MEMORY.md`
+- `docs/agent/AGENT-FEATURES.md`; `AGENT-MEMORY.md` (yerel, `.gitignore`'da)
 - `tools/` ve `tools/legacy/` (eski kaynak-modu scriptleri)
 
 Komutlar **kök dizinden** çalışır:
@@ -65,7 +65,7 @@ ISCC.exe packaging\installer.iss
 Klasör düzeni öncesi geri dönüş:
 `git switch -c geri-al checkpoint/pre-reorg-2026-11-22`
 (etiket `0c07b84`). Ayrıntılı kalıcı notlar:
-`docs/agent/AGENT-MEMORY.md`.
+`AGENT-MEMORY.md` (yerel; `.gitignore`'da).
 
 ## Mimari kuralları (bozmadan değişiklik yap)
 - **Tk tek thread.** Ağ işi `fetch_loop` thread'inde döner; sonuçlar `self.queue`'ya yazılır,
