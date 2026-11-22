@@ -247,12 +247,15 @@ silindi. Bu bölüm yukarıdaki sözleşmelere eklenir.
 - `_row_height` artık `_view_symbols` sayısını kullanır (odak/grup için şart).
 
 ### Test/CI/dağıtım
-- 125 unittest + `tools/ui_matrix.py` coverage'a dahil; eşik **40** (ölçülen ~56).
+- 130 unittest + `tools/ui_matrix.py` coverage'a dahil; eşik **40** (ölçülen ~56).
 - `mypy.ini` yalnızca `market_calendar.py`; CI `python -m mypy`.
 - Release: 3 artifact için `actions/attest-build-provenance@v2`.
 - CI: Inno 0.0.1 → 0.0.2 yükseltme, tek kaldırıcı ve sürüm doğrulaması.
 - Tanılama ZIP'i: `sistem.txt`, `config-redacted.json`, log, alarm geçmişi,
   snapshot. Portföy adet/maliyeti ve alarm eşikleri pakete girmez.
+- Grafik alarmı: `chart_price_at(y, y1, y2, lo, hi)` saftır; `set_alarm_level`
+  ve `clear_alarm_level` config alarmlarını yönetir. Detay panelinde sağ tık
+  `_on_chart_right_click`, çizgiler `_draw_alarm_lines`; dış istek yok.
 - TR/EN: yeni görünür metin `i18n._DIRECT`/`_PATTERNS`'e eklenmeli; log/CLI
   çevrilmez. Dil değişimi menü + tray + ana kartı yeniden kurar.
 - ABD borsası tespiti tek kaynak: `market_calendar.exchange_profile`

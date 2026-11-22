@@ -50,8 +50,9 @@ $env:SW_DATA_DIR = "$PWD\veri"
 - **Portföy:** değer, günlük değişim ve pozisyon K/Z; hedef fiyat, not, maliyet,
   para birimi başına toplam, **CSV** ve yerel portföy geçmişi grafiği.
 - **Alarm ve düzen:** fiyat, günlük değişim ve maliyete göre kâr/zarar alarmı;
-  sessiz saat, erteleme, alarm geçmişi; sıralama, gruplar ve odak modu.
-  Sağ tıkta alarm, taşıma, kopyalama ve Yahoo Finance.
+  detay grafiğinde sağ tıkla seviyeden alarm; sessiz saat, erteleme, alarm
+  geçmişi; sıralama, gruplar ve odak modu. Sağ tıkta taşıma, kopyalama ve
+  Yahoo Finance.
 - **Piyasalar:** ABD, BIST ve 7/24 kripto profilleri; BIST tatilleri, ₺ biçimi ve
   çoklu piyasa durumu. PÖ/PS yalnızca ABD borsalarında gösterilir.
 - **Görünüm ve tepsi:** Gece / Slate / Grafit / Açık, %60–100 opaklık,

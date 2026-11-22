@@ -1599,6 +1599,64 @@ class ConfigExtraTest(unittest.TestCase):
                 sw._CONFIG_FROM_BACKUP = False
 
 
+class ChartAlarmTest(unittest.TestCase):
+    def test_chart_price_mapping(self):
+        self.assertAlmostEqual(sw.chart_price_at(0, 0, 100, 10, 20), 20.0)
+        self.assertAlmostEqual(sw.chart_price_at(50, 0, 100, 10, 20), 15.0)
+        self.assertAlmostEqual(sw.chart_price_at(100, 0, 100, 10, 20), 10.0)
+        self.assertIsNone(sw.chart_price_at(-1, 0, 100, 10, 20))
+        self.assertIsNone(sw.chart_price_at(101, 0, 100, 10, 20))
+        self.assertIsNone(sw.chart_price_at(50, 0, 0, 10, 20))
+        self.assertIsNone(sw.chart_price_at(50, 0, 100, 20, 10))
+
+    def test_chart_price_rounding(self):
+        self.assertEqual(sw.round_chart_price(123.456), 123.46)
+        self.assertEqual(sw.round_chart_price(0.123456), 0.1235)
+        self.assertIsNone(sw.round_chart_price(0))
+        self.assertIsNone(sw.round_chart_price("x"))
+
+    def test_set_and_clear_alarm_levels(self):
+        alarms = {"AAPL": {"below": 100, "extended": True}}
+        alarms = sw.set_alarm_level(alarms, "AAPL", "above", 200.126)
+        self.assertEqual(alarms["AAPL"]["above"], 200.13)
+        self.assertEqual(alarms["AAPL"]["below"], 100.0)
+        self.assertTrue(alarms["AAPL"]["extended"])
+        alarms = sw.clear_alarm_level(alarms, "AAPL", "above")
+        self.assertNotIn("above", alarms["AAPL"])
+        self.assertIn("below", alarms["AAPL"])
+        self.assertEqual(sw.clear_alarm_level(alarms, "AAPL"), {})
+        self.assertEqual(sw.set_alarm_level({}, "A", "bad", 1), {})
+
+    def test_alarm_lines_are_drawn(self):
+        half = sw.DetailPanel.__new__(sw.DetailPanel)
+        half.canvas = _FakeCanvas()
+        half.s = lambda v: int(round(v))
+        half.symbol = "AAPL"
+        half.app = mock.Mock()
+        half.app.cfg = {"alarms": {"AAPL": {"above": 115, "below": 105}}}
+        half._draw_alarm_lines({}, 100.0, 120.0, 20.0, 0, 200, 0, 100)
+        lines = [i for i in half.canvas.items if i["kind"] == "line"]
+        texts = [i for i in half.canvas.items if i["kind"] == "text"]
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(len(texts), 2)
+        self.assertTrue(all(i["opts"]["fill"] == sw.AMBER for i in lines))
+
+    def test_app_chart_alarm_persists(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.cfg = {"alarms": {}}
+        app.last = {"AAPL": {"price": 150}}
+        app._alarm_state = {}
+        app._render_keys = {}
+        app._render_row = mock.Mock()
+        with mock.patch.object(sw, "save_config", return_value=True):
+            app.set_chart_alarm("AAPL", "above", 160.126)
+        self.assertEqual(app.cfg["alarms"]["AAPL"]["above"], 160.13)
+        app._render_row.assert_called_once()
+        with mock.patch.object(sw, "save_config", return_value=True):
+            app.clear_chart_alarms("AAPL")
+        self.assertEqual(app.cfg["alarms"], {})
+
+
 class I18nTest(unittest.TestCase):
     def tearDown(self):
         sw.i18n.set_language("tr")

@@ -157,6 +157,10 @@ _DIRECT: dict[str, str] = {
     "ZARAR %": "LOSS %",
     "Sessiz saat": "Quiet hours",
     "Son alarmlar": "Recent alarms",
+    "Alarmları düzenle…": "Edit alarms…",
+    "Alarmları kaldır": "Clear alarms",
+    "üst alarm": "upper alarm",
+    "alt alarm": "lower alarm",
     "Takip listesi boş.": "Watchlist empty.",
     "Boş alan alarm yok demektir. Eşik aşıldığında bir kez tepsi bildirimi gelir; fiyat geri dönünce alarm yeniden kurulur. Kâr/Zarar % alanları pozisyon maliyetine göredir.":
         "Empty field means no alarm. A tray notification is shown once when "
@@ -201,6 +205,10 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^Yeni sürüm: (.+)$"), r"New version: \1"),
     (re.compile(r"^Grup: (.+)$"), r"Group: \1"),
     (re.compile(r"^(.+) · Alarm kur…$"), r"\1 · Set alarm…"),
+    (re.compile(r"^Üstünde alarm kur · (.+)$"),
+     r"Set alarm above · \1"),
+    (re.compile(r"^Altında alarm kur · (.+)$"),
+     r"Set alarm below · \1"),
     (re.compile(r"^Hedef fiyata alarm kur \((.+)\)$"),
      r"Set target alarm (\1)"),
     (re.compile(r"^(\d+) dk önce$"), r"\1 min ago"),

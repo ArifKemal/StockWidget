@@ -2083,6 +2083,51 @@ def _retry_after(response, default=THROTTLE_429):
         return default
 
 
+def chart_price_at(y, y1, y2, lo, hi):
+    """Grafikteki Y koordinatını fiyata çevirir; aralık dışında None."""
+    if y2 <= y1 or hi <= lo or y < y1 or y > y2:
+        return None
+    ratio = (y - y1) / float(y2 - y1)
+    return hi - ratio * (hi - lo)
+
+
+def round_chart_price(price):
+    """Grafik tıklamasını makul fiyat ondalığına yuvarlar."""
+    value = _to_float(price)
+    if value is None or value <= 0:
+        return None
+    return round(value, 4 if value < 1 else 2)
+
+
+def set_alarm_level(alarms, symbol, kind, price):
+    """`above`/`below` alarm seviyesini ekler; diğer alanları korur."""
+    if kind not in ("above", "below"):
+        return clean_alarms(alarms)
+    value = round_chart_price(price)
+    if value is None:
+        return clean_alarms(alarms)
+    rules = dict(alarms or {})
+    rule = dict(rules.get(symbol) or {})
+    rule[kind] = value
+    rules[symbol] = rule
+    return clean_alarms(rules)
+
+
+def clear_alarm_level(alarms, symbol, kind=None):
+    """Tek yönü ya da sembolün tüm alarmlarını kaldırır."""
+    rules = dict(alarms or {})
+    rule = dict(rules.get(symbol) or {})
+    if kind in ("above", "below"):
+        rule.pop(kind, None)
+    else:
+        rule = {}
+    if rule:
+        rules[symbol] = rule
+    else:
+        rules.pop(symbol, None)
+    return clean_alarms(rules)
+
+
 class DetailPanel:
     WIDTH = 300
     HEIGHT = 398
@@ -2138,6 +2183,7 @@ class DetailPanel:
             lambda e: self.win.after(0, self.toggle_mode))
         self.canvas.bind("<Button-1>", self._press)
         self.canvas.bind("<B1-Motion>", self._drag)
+        self.canvas.bind("<Button-3>", self._on_chart_right_click)
         self.canvas.bind("<Motion>", self._on_motion)
         self.canvas.bind("<Leave>", self._on_leave)
         # Esc ile paneli kapat: hem panelde hem ana kartta çalışsın
@@ -2146,6 +2192,7 @@ class DetailPanel:
         self._dx = 0
         self._dy = 0
         self._plot = None
+        self._chart_menu = None
         self._hover_idx = None
         self._tab_geo = []
         self._tab_y = (0, 0)
@@ -2566,6 +2613,7 @@ class DetailPanel:
         }
         self._draw_event_markers(data, pad, x2, y1, y2)
         self._draw_position_lines(info, lo, hi, rng, pad, x2, y1, y2)
+        self._draw_alarm_lines(info, lo, hi, rng, pad, x2, y1, y2)
 
     def _draw_event_markers(self, data, pad, x2, y1, y2):
         """Grafik aralığındaki temettü (T) ve bölünme (B) işaretleri."""
@@ -2600,6 +2648,73 @@ class DetailPanel:
             drawn += 1
             if drawn >= 8:
                 break
+
+    def _on_chart_right_click(self, event):
+        """Grafikte fiyat seviyesine sağ tık: üst/alt alarm kur."""
+        p = self._plot
+        if self._closed or not p:
+            return
+        price = chart_price_at(event.y, p["y1"], p["y2"], p["lo"], p["hi"])
+        price = round_chart_price(price)
+        if price is None:
+            return
+        info = self.app.last.get(self.symbol) or {}
+        cur = info.get("currency") or "USD"
+        price_txt = fmt_money(price, cur)
+        rules = (self.app.cfg.get("alarms") or {}).get(self.symbol) or {}
+        try:
+            old = getattr(self, "_chart_menu", None)
+            if old is not None:
+                old.destroy()
+        except tk.TclError:
+            pass
+        menu = tk.Menu(self.win, tearoff=0, bg=MENU_BG, fg=FG,
+                       activebackground=MENU_ACTIVE, activeforeground=FG,
+                       bd=0)
+        self._chart_menu = menu
+        menu.add_command(
+            label="Üstünde alarm kur · %s" % price_txt,
+            command=lambda: self._set_chart_alarm("above", price))
+        menu.add_command(
+            label="Altında alarm kur · %s" % price_txt,
+            command=lambda: self._set_chart_alarm("below", price))
+        if rules:
+            menu.add_separator()
+            menu.add_command(label="Alarmları düzenle…",
+                             command=lambda: self.app.open_alarm_editor(
+                                 self.symbol))
+            menu.add_command(label="Alarmları kaldır",
+                             command=self._clear_chart_alarms)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            try:
+                menu.grab_release()
+            except tk.TclError:
+                pass
+
+    def _set_chart_alarm(self, kind, price):
+        self.app.set_chart_alarm(self.symbol, kind, price)
+        self.render()
+
+    def _clear_chart_alarms(self):
+        self.app.clear_chart_alarms(self.symbol)
+        self.render()
+
+    def _draw_alarm_lines(self, info, lo, hi, rng, pad, x2, y1, y2):
+        """Grafikte kayıtlı üst/alt alarm seviyelerini çiz."""
+        rules = (self.app.cfg.get("alarms") or {}).get(self.symbol) or {}
+        for kind, label in (("above", "üst alarm"),
+                            ("below", "alt alarm")):
+            value = _to_float(rules.get(kind))
+            if value is None or not (lo <= value <= hi) or hi <= lo:
+                continue
+            y = y2 - (value - lo) / rng * (y2 - y1)
+            self.canvas.create_line(pad, y, x2, y, fill=AMBER,
+                                    dash=(2, 3))
+            self.canvas.create_text(pad + self.s(2), y - self.s(4),
+                                    text=label, anchor="w", fill=AMBER,
+                                    font=("Segoe UI", 6, "bold"))
 
     def _draw_position_lines(self, info, lo, hi, rng, pad, x2, y1, y2):
         """Portföyde hedef ve ortalama maliyet varsa grafikte çizgi göster."""
@@ -3934,6 +4049,28 @@ class StockWidget:
         self._alarm_state.pop(sym, None)
         self.build_ui()
         log.info("%s için hedef alarmı kuruldu: %s", sym, target)
+
+    def set_chart_alarm(self, sym, kind, price):
+        self.cfg["alarms"] = set_alarm_level(
+            self.cfg.get("alarms"), sym, kind, price)
+        save_config(self.cfg)
+        self._alarm_state.pop(sym, None)
+        getattr(self, "_render_keys", {}).pop(sym, None)
+        info = self.last.get(sym)
+        if info:
+            self._render_row(sym, info)
+        log.info("%s grafik alarmı %s: %s", sym, kind, price)
+
+    def clear_chart_alarms(self, sym):
+        self.cfg["alarms"] = clear_alarm_level(
+            self.cfg.get("alarms"), sym)
+        save_config(self.cfg)
+        self._alarm_state.pop(sym, None)
+        getattr(self, "_render_keys", {}).pop(sym, None)
+        info = self.last.get(sym)
+        if info:
+            self._render_row(sym, info)
+        log.info("%s grafik alarmları kaldırıldı", sym)
 
     def _refresh_remove_menu(self):
         self.remove_menu.delete(0, "end")

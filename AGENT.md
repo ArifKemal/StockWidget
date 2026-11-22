@@ -658,7 +658,8 @@ silindi; tek dal `main`.
    detay alt satırında özet. Yeni istek yok.
 4. **Alarm genişletmesi.** `profit` / `loss` (pozisyon maliyetine göre), sessiz
    saat (`quiet_*`), 1 saat susturma, `alarm-history.json`, hedef fiyata tek
-   tıkla alarm. Detay grafiğinde hedef ve maliyet çizgileri.
+   tıkla alarm. Detay grafiğinde sağ tıkla üst/alt alarm seviyesi; hedef,
+   maliyet ve alarm çizgileri.
 5. **Kart/UX.** Satırda pozisyon K/Z; odak modu ve Ctrl+←/→; sembol grupları
    (`symbol_groups`, `group_filter`) + menü filtresi; `Gruplar…` editörü.
 6. **Piyasa profilleri.** `market_calendar.py`: ABD/BIST/kripto profilleri,
@@ -672,7 +673,7 @@ silindi; tek dal `main`.
 9. **Kalite/dağıtım.** CI: mypy (kademeli), coverage ≥40 (ölçülen ~56;
    unittest + UI matrisi),
    Inno 0.0.1→0.0.2 yükseltme testi, Sigstore `attest-build-provenance`
-   (3 artifact). Testler 125; UI matrisi coverage'a dahil (ölçülen ~56%);
+   (3 artifact). Testler 130; UI matrisi coverage'a dahil (~56%);
    5 ölçek × 4 tema × 2 yoğunluk + alarm/grup/portföy/ayarlar pencereleri.
 10. **Regresyon düzeltmesi.** Row menüye Ayarlar/Semboller/Portföy/Gruplar
     eklendi; `is_us_exchange` artık `NGM`/`NCM`/Nasdaq katmanlarını ve
