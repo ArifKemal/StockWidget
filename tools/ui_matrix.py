@@ -54,6 +54,11 @@ def run_scale(scale):
     os.environ["SW_SCALE"] = str(scale)
     app = sw.StockWidget()
     try:
+        menu = app._build_row_menu(app.cfg["symbols"][0])
+        labels = [menu.entrycget(i, "label")
+                  for i in range(menu.index("end") + 1)
+                  if menu.type(i) != "separator"]
+        assert "Ayarlar…" in labels, labels
         for theme in sw.THEME_ORDER:
             app.set_theme(theme)
             for density in ("normal", "compact"):

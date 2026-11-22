@@ -245,7 +245,7 @@ Dal: `feature/all-packages`. Bu bölüm yukarıdaki sözleşmelere eklenir.
 - `_row_height` artık `_view_symbols` sayısını kullanır (odak/grup için şart).
 
 ### Test/CI/dağıtım
-- 123 unittest + `tools/ui_matrix.py` coverage'a dahil; eşik **40** (ölçülen ~56).
+- 125 unittest + `tools/ui_matrix.py` coverage'a dahil; eşik **40** (ölçülen ~56).
 - `mypy.ini` yalnızca `market_calendar.py`; CI `python -m mypy`.
 - Release: 3 artifact için `actions/attest-build-provenance@v2`.
 - CI: Inno 0.0.1 → 0.0.2 yükseltme, tek kaldırıcı ve sürüm doğrulaması.
@@ -253,3 +253,8 @@ Dal: `feature/all-packages`. Bu bölüm yukarıdaki sözleşmelere eklenir.
   snapshot. Portföy adet/maliyeti ve alarm eşikleri pakete girmez.
 - TR/EN: yeni görünür metin `i18n._DIRECT`/`_PATTERNS`'e eklenmeli; log/CLI
   çevrilmez. Dil değişimi menü + tray + ana kartı yeniden kurar.
+- ABD borsası tespiti tek kaynak: `market_calendar.exchange_profile`
+  (NMS/NGM/NCM/NAS/NYQ/NYE + `America/New_York` + Nasdaq/NYSE adları).
+  `is_us_exchange` bu profile dayanır; yeni Yahoo kodu eklenirse buraya ekle.
+- Satır sağ tık menüsü ana pencereleri de içerir (Ayarlar/Semboller/Portföy/
+  Gruplar); yeni ana menü komutu eklerken row menüye de erişim düşünülmeli.

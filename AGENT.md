@@ -644,8 +644,12 @@ Geri dönüş etiketi: `checkpoint/pre-all-packages-2026-11-22` (f99e523).
 9. **Kalite/dağıtım.** CI: mypy (kademeli), coverage ≥40 (ölçülen ~56;
    unittest + UI matrisi),
    Inno 0.0.1→0.0.2 yükseltme testi, Sigstore `attest-build-provenance`
-   (3 artifact). Testler 123; UI matrisi coverage'a dahil (ölçülen ~56%);
+   (3 artifact). Testler 125; UI matrisi coverage'a dahil (ölçülen ~56%);
    5 ölçek × 4 tema × 2 yoğunluk + alarm/grup/portföy/ayarlar pencereleri.
+10. **Regresyon düzeltmesi.** Row menüye Ayarlar/Semboller/Portföy/Gruplar
+    eklendi; `is_us_exchange` artık `NGM`/`NCM`/Nasdaq katmanlarını ve
+    `America/New_York` saat dilimini tanır. ONDS (NCM) ve BRUN (NGM) yeniden
+    PÖ/PS alır; `exchange_profile` ile tek kaynak kural kullanılır.
 
 Bilinçli sınırlar: BIST dini bayram tablosu yıllık güncellenir; generic borsa
 profili ilk veriden sonra `marketState` kullanır; İngilizce arayüz kullanıcı

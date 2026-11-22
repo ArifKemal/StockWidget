@@ -1257,6 +1257,26 @@ class UsExchangeTest(unittest.TestCase):
             info = sw.fetch_quote("AAPL", True)
         self.assertEqual(info["ext_session"], "pre")
 
+    def test_nasdaq_tiers_are_us(self):
+        for code in ("NMS", "NGM", "NCM", "NAS", "NYQ", "NYE"):
+            self.assertTrue(sw.is_us_exchange({"exchangeName": code}), code)
+        self.assertTrue(sw.is_us_exchange(
+            {"exchangeName": "XYZ",
+             "exchangeTimezoneName": "America/New_York"}))
+        self.assertFalse(sw.is_us_exchange({"exchangeName": "LSE"}))
+        self.assertFalse(sw.is_us_exchange({"exchangeName": "IST"}))
+        self.assertTrue(sw.is_us_exchange({}))   # meta yok: eski davranış
+
+    def test_nasdaq_capital_prepost(self):
+        # ONDS gibi NCM sembolleri de PÖ/PS alabilmeli
+        stamps = [calendar.timegm(datetime.datetime(2026, 11, 18, h).timetuple())
+                  for h in (11, 12)]
+        with mock.patch.object(sw._HTTP, "get",
+                               return_value=_Resp(self._payload("NCM", stamps))):
+            info = sw.fetch_quote("ONDS", True)
+        self.assertEqual(info["exchange_code"], "NCM")
+        self.assertEqual(info["ext_session"], "pre")
+
     def test_metadata_fields(self):
         payload = _chart_payload([1.0], [0], 1.0, 1.0)
         meta = payload["chart"]["result"][0]["meta"]
@@ -1413,6 +1433,13 @@ class MarketCalendarTest(unittest.TestCase):
             {"instrument_type": "CRYPTOCURRENCY"}), "crypto")
         self.assertEqual(sw.exchange_profile({"exchange_code": "NMS"},
                                              "AAPL"), "us")
+        self.assertEqual(sw.exchange_profile({"exchange_code": "NGM"},
+                                             "BRUN"), "us")
+        self.assertEqual(sw.exchange_profile({"exchange_code": "NCM"},
+                                             "ONDS"), "us")
+        self.assertEqual(sw.exchange_profile(
+            {"exchange_code": "XYZ",
+             "exchangeTimezoneName": "America/New_York"}, "XYZ"), "us")
         self.assertEqual(sw.exchange_profile({"exchange_code": "LSE"},
                                              "VOD.L"), "generic")
 

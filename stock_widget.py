@@ -1329,10 +1329,6 @@ def write_update_cache(info):
         pass
 
 
-US_EXCHANGE_CODES = {
-    "NMS", "NYQ", "ASE", "PCX", "BTS", "CBO", "CHX", "NSX",
-    "ARCX", "XNAS", "XNYS", "IEX", "MEMX",
-}
 MARKET_STATE_LABEL = {
     "PRE": "PÖ", "PREPRE": "PÖ", "REGULAR": "açık",
     "POST": "PS", "POSTPOST": "PS", "CLOSED": "kapalı",
@@ -1342,11 +1338,19 @@ MARKET_STATE_LABEL = {
 def is_us_exchange(meta):
     """PÖ/PS rozetinin anlamlı olduğu ABD hisse piyasası mı?
 
-    Kod bilinmiyorsa eski davranış korunur. Bilinen ABD dışı piyasalarda
-    04:00–20:00 ET barlarını PÖ/PS diye etiketlemek yanıltıcı olur.
+    `exchange_profile` ile aynı kuralları kullanır: borsa kodu, New York saat
+    dilimi veya tam borsa adı. Meta tamamen boşsa eski davranış korunur.
     """
-    code = (meta.get("exchangeName") or "").strip().upper()
-    return not code or code in US_EXCHANGE_CODES
+    meta = meta or {}
+    profile = exchange_profile(meta)
+    if profile == "us":
+        return True
+    if profile in ("tr", "crypto"):
+        return False
+    has_info = any(meta.get(key) for key in
+                   ("exchange_code", "exchangeName", "exchange",
+                    "timezone", "exchangeTimezoneName", "fullExchangeName"))
+    return not has_info
 
 
 def fetch_quote(symbol, include_prepost=True):
@@ -3902,6 +3906,13 @@ class StockWidget:
                 rec["target"], info.get("currency")), state="disabled")
         if rec.get("note"):
             m.add_command(label="Not: %s" % rec["note"], state="disabled")
+        m.add_separator()
+        # Satır sağ tık menüsünde de ana uygulama pencereleri erişilebilir
+        # olsun; yoksa Ayarlar yalnızca boş alana sağ tıkta kalıyordu.
+        m.add_command(label="Ayarlar…", command=self.open_settings_editor)
+        m.add_command(label="Semboller…", command=self.open_symbol_editor)
+        m.add_command(label="Portföy…", command=self.open_portfolio_editor)
+        m.add_command(label="Gruplar…", command=self.open_group_editor)
         m.add_separator()
         m.add_command(label="Listeden çıkar",
                       command=lambda: self.remove_symbol(sym))

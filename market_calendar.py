@@ -15,9 +15,13 @@ import datetime
 Profile = str
 
 US_EXCHANGE_CODES: frozenset[str] = frozenset({
-    "NMS", "NYQ", "ASE", "PCX", "BTS", "CBO", "CHX", "NSX",
-    "ARCX", "XNAS", "XNYS", "IEX", "MEMX",
+    "NMS", "NGM", "NCM", "NAS", "NYQ", "NYE", "NYS", "ASE", "PCX",
+    "BTS", "CBO", "CHX", "NSX", "ARCX", "XNAS", "XNYS", "IEX", "MEMX",
+    "OTC", "PNK", "OQX", "OQB",
 })
+US_EXCHANGE_NAMES: tuple[str, ...] = (
+    "nasdaq", "nyse", "amex", "arca", "cboe", "bats",
+)
 TR_EXCHANGE_CODES: frozenset[str] = frozenset({"IST", "BIST", "XIST"})
 CRYPTO_CODES: frozenset[str] = frozenset({"CCC", "CRYPTOCURRENCY"})
 
@@ -107,11 +111,19 @@ def crypto_phase() -> str:
 
 
 def exchange_profile(info: dict | None, symbol: str = "") -> Profile:
-    """Yahoo meta + sembolden piyasa profili: us/tr/crypto/generic."""
+    """Yahoo meta + sembolden piyasa profili: us/tr/crypto/generic.
+
+    Borsa kodu tek başına yeterli değildir: Yahoo Nasdaq'ın farklı katmanları
+    için NMS/NGM/NCM, NYSE için NYQ/NYE gibi kodlar kullanır. Saat dilimi ve
+    tam borsa adı da yedek olarak değerlendirilir.
+    """
     meta = info or {}
-    code = str(meta.get("exchange_code") or meta.get("exchange")
-               or "").strip().upper()
-    timezone = str(meta.get("timezone") or "").strip().lower()
+    code = str(meta.get("exchange_code") or meta.get("exchangeName")
+               or meta.get("exchange") or "").strip().upper()
+    timezone = str(meta.get("timezone") or meta.get("exchangeTimezoneName")
+                   or "").strip().lower()
+    full_name = str(meta.get("fullExchangeName") or meta.get("exchange")
+                    or meta.get("exchangeName") or "").strip().lower()
     instrument = str(meta.get("instrument_type") or "").strip().upper()
     sym = symbol.upper()
     if (instrument == "CRYPTOCURRENCY" or code in CRYPTO_CODES
@@ -120,7 +132,8 @@ def exchange_profile(info: dict | None, symbol: str = "") -> Profile:
     if (code in TR_EXCHANGE_CODES or timezone == "europe/istanbul"
             or sym.endswith(".IS")):
         return "tr"
-    if code in US_EXCHANGE_CODES:
+    if (code in US_EXCHANGE_CODES or timezone == "america/new_york"
+            or any(name in full_name for name in US_EXCHANGE_NAMES)):
         return "us"
     return "generic"
 
