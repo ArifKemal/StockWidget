@@ -42,6 +42,31 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `%APPDATA%\StockWidget\` — kurulu/portatif sürümde ayar + log + son fiyatlar (SW_DATA_DIR ile değiştirilebilir)
 - `build/`, `dist/`, `dist-onefile/`, `Output/` — derleme çıktıları, `.gitignore`'da
 
+## Repo düzeni ve geri dönüş (2026-11-22)
+
+Tek dal: **main**. Klasör düzeni:
+
+- Kök: `stock_widget.py`, `market_calendar.py`, `i18n.py`, `README.md`,
+  `LICENSE`, `AGENT.md`, `mypy.ini`, `requirements*.txt`
+- `tests/test_stock_widget.py` — unittest
+- `assets/stock.ico` — kaynak + PyInstaller ikonu
+- `packaging/` — `.spec`, `installer.iss`, `version_info.txt`, Winget/Scoop
+- `docs/agent/AGENT-FEATURES.md`, `docs/agent/AGENT-MEMORY.md`
+- `tools/` ve `tools/legacy/` (eski kaynak-modu scriptleri)
+
+Komutlar **kök dizinden** çalışır:
+```powershell
+python -m unittest discover -s tests -t .
+python -m PyInstaller --noconfirm --clean packaging/StockWidget.spec
+python -m PyInstaller --noconfirm --clean --distpath dist-onefile packaging/StockWidget-onefile.spec
+ISCC.exe packaging\installer.iss
+```
+
+Klasör düzeni öncesi geri dönüş:
+`git switch -c geri-al checkpoint/pre-reorg-2026-11-22`
+(etiket `0c07b84`). Ayrıntılı kalıcı notlar:
+`docs/agent/AGENT-MEMORY.md`.
+
 ## Mimari kuralları (bozmadan değişiklik yap)
 - **Tk tek thread.** Ağ işi `fetch_loop` thread'inde döner; sonuçlar `self.queue`'ya yazılır,
   `poll_queue` (root.after ~150–200 ms) ana thread'de tüketir. **Thread'den Tk widget'ına asla dokunma.**
