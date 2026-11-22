@@ -471,7 +471,7 @@ Klasör düzeni öncesi geri dönüş:
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat
-cd "C:\Users\<kullanıcı>\Desktop\StockWidget"
+cd "C:\Users\<kullanıcı>\Projects\stock-widget"
 python -m py_compile stock_widget.py
 python -m unittest discover -s tests -t .
 python tools\ui_matrix.py                  :: tema x yoğunluk x DPI (ağsız, traysiz)

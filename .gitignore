@@ -13,6 +13,9 @@ _hover_preview.png
 *-app-plan.json
 *.session.json
 
+# Graphify çıktıları (yerel bilgi grafiği)
+graphify-out/
+
 # Derleme çıktıları
 build/
 dist/
