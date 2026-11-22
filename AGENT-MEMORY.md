@@ -33,8 +33,9 @@ Bu dosya oturumlar arasında unutulmaması gerekenleri tutar. Proje sözleşmesi
 
 ## Mevcut durum (2026-11-22)
 
-- Tek dal: **main** → `0c983b6` (tüm paketler + düzeltmeler fast-forward
-  birleşti; `feature/all-packages` yerel ve uzakta silindi).
+- Tek dal: **main**; kod birleşmesi `0c983b6` (tüm paketler + düzeltmeler
+  fast-forward), üzerine doküman commit'leri gelebilir. `feature/all-packages`
+  yerel ve uzakta silindi.
 - `main` önceki hali: `f99e523` (checkpoint).
 - Checkpoint'ler:
   - `checkpoint/pre-all-packages-2026-11-22` → f99e523
