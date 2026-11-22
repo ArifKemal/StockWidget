@@ -43,52 +43,22 @@ $env:SW_DATA_DIR = "$PWD\veri"
 
 ## Özellikler
 
-- **Kart:** sembol, fiyat, günlük değişim, şirket adı ve mini grafik; sabit
-  genişlikli rakamlar, "son güncelleme" zamanı, piyasa durumu noktası. Açılışta
-  son bilinen fiyatlar `snapshot.json`'dan anında gösterilir; ilk yanıt gelince
-  tazelenir (boş kart beklemesi yok).
-- **Seans dışı:** piyasa öncesi/sonrası fiyat ve değişim, satırda ve detay
-  panelinde **PÖ** / **PS** rozetiyle gösterilir. Değer, grafiği besleyen son
-  5 dk barından okunur; bu yüzden kart, detay ve grafik her zaman aynı fiyatı
-  gösterir, ek istek yapılmaz. 1G grafiği 04:00–20:05 ET barlarını içerir ve
-  eksenin sağ ucu son verinin saatini ("şimdi" ya da saat) gösterir.
-- **Alarmlar:** sembol başına üst fiyat, alt fiyat ve günlük değişim eşiği.
-  Eşik aşıldığında bir kez tepsi bildirimi ve kart altında kısa uyarı çıkar;
-  fiyat geri dönünce alarm yeniden kurulur. PÖ/PS fiyatıyla çalışması isteğe
-  bağlıdır. Ek veri isteği yapılmaz.
-- **Sıralama:** elle, değişim yüzdesi, sembol veya portföy değerine göre.
-  Satıra sağ tık: alarm kur, yukarı/aşağı taşı, sembolü/fiyatı kopyala,
-  Yahoo Finance'te aç.
-- **Klavye:** **F5** yenile, **↑/↓** satır seç, **Enter** detay, **Esc** kapat.
-- **Portföy:** toplam değer, günlük değişim ve pozisyon başına K/Z; hedef fiyat
-  ve not, kartta maliyet gösterimi, para birimi başına ayrı toplamlar ve
-  **CSV** dışa aktarma.
-- **Detay paneli:** satıra tıklayınca açılır; **1G / 1H / 1A / 1Y** aralıkları,
-  mum/çizgi geçişi, fareyle zaman-fiyat-yüzde okuması, hacim çubukları, sağ
-  fiyat ekseni, gün aralığı ve 52 hafta çubuğu. **Esc** (ya da sağ üstteki
-  **✕**) paneli kapatır.
-- **Görünüm:** Gece / Slate / Grafit / Açık tema, %60–100 opaklık, normal/kompakt,
-  her zaman üstte.
-- **Hareket:** panel açılışı/kapanışı, sekme vurgusu, satır vurgusu ve kart
-  göster/gizle kısa (90–130 ms) yumuşak geçişlerle yapılır; Windows'ta
-  "animasyonları göster" kapalıysa hareketler otomatik devre dışı kalır.
-- **Tepsi:** göster/gizle, yenile, ayarlar, semboller, otomatik başlatma, çıkış.
-- **Güncelleme:** yeni sürüm günde en fazla bir kez (GitHub'a tek istek) denetlenir;
-  varsa menüde "Yeni sürüm: x.y.z" ve bir kez tepsi bildirimi olarak görünür.
-  Sağ tık → **Güncelleme denetle…** önbelleği atlar. Uygulama kendiliğinden
-  indirmez/kurmaz, yalnızca indirme sayfasını açar.
-- **Dayanıklılık:** varsayılan açıkken 15 dk, kapalıyken 60 dk yenileme (Ayarlar'dan
-  değiştirilebilir); hata sonrası 90 s bekleme. HTTP 429 gelirse kalan semboller
-  atlanır ve `Retry-After` başlığına göre (en az 1 dk, HTTP tarihi de desteklenir)
-  beklenir; aynı saniyede geri dönmemek için küçük rastgele gecikme eklenir.
-  NYSE tatilleri ve 13:00 ET erken kapanışları (şükran sonrası, Noel arifesi,
-  3 Temmuz) kapalı sayılır. Tek kopya çalışır. "Piyasa kapalıyken durdur"
-  seçilirse kapalıyken hiç istek gönderilmez. Tek dosya sürümünün `%TEMP%`
-  altında bıraktığı, bir haftadan eski `_MEI…` klasörleri açılışta temizlenir.
-- **Önbellek ve hız:** açılışta son fiyatlar `snapshot.json`'dan gösterilir
-  ("önbellek" notuyla); canlı yanıt gelince tazelenir. Değişmeyen satırlar ve
-  aynı sparkline yeniden çizilmez; Yahoo bağlantısı `requests.Session` ile
-  yeniden kullanılır. Ağ isteği sayısı değişmez.
+- **Kart:** fiyat, günlük değişim, şirket adı ve mini grafik. PÖ/PS rozeti
+  grafikle aynı fiyatı gösterir; açılışta son fiyatlar önbellekten anında gelir.
+- **Detay paneli:** **1G / 1H / 1A / 1Y**, çizgi/mum, hacim ve sağ fiyat ekseni,
+  fareyle okuma, gün aralığı ve 52 hafta. **Esc** ya da **✕** kapatır.
+- **Portföy:** değer, günlük değişim ve pozisyon K/Z; hedef fiyat, not, maliyet
+  gösterimi, para birimi başına toplam ve **CSV** dışa aktarma.
+- **Alarm ve düzen:** üst/alt fiyat ve günlük değişim alarmı; elle, değişim,
+  sembol veya portföy değerine göre sıralama. Sağ tıkta alarm, taşıma,
+  kopyalama ve Yahoo Finance. **F5** yenile, **↑/↓** seç, **Enter** detay.
+- **Görünüm ve tepsi:** Gece / Slate / Grafit / Açık, %60–100 opaklık,
+  normal/kompakt, kısa geçişler; tepsi ve otomatik başlatma.
+- **Dayanıklılık:** açıkken 15 dk, kapalıyken 60 dk yenileme; 429’da
+  `Retry-After`; NYSE tatilleri ve erken kapanışlar; tek kopya; günde en fazla
+  bir güncelleme denetimi (yalnızca bildirir).
+- **Hız:** değişmeyen satır ve mini grafik yeniden çizilmez; son fiyat önbelleği
+  ve yeniden kullanılan Yahoo bağlantısı sayesinde istek sayısı artmaz.
 
 ## Veri kaynağı
 
