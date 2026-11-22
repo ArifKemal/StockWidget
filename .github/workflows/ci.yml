@@ -35,11 +35,16 @@ jobs:
       - name: Lint
         run: python -m ruff check .
 
+      - name: Tip kontrolü (kademeli)
+        if: matrix.python-version == '3.12'
+        run: python -m mypy
+
       - name: Sözdizimi ve testler
         run: |
           python -m py_compile stock_widget.py
           python -m coverage run -m unittest test_stock_widget.py
-          python -m coverage report --include="stock_widget.py" --fail-under=30
+          python -m coverage run --append tools/ui_matrix.py
+          python -m coverage report --include="stock_widget.py" --fail-under=40
           python stock_widget.py --version
 
   audit:
@@ -128,15 +133,23 @@ jobs:
             $iscc = Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"
           }
           if (!(Test-Path $iscc)) { throw "ISCC.exe bulunamadı" }
-          & $iscc "/DMyAppVersion=0.0.0" installer.iss
-          if ($LASTEXITCODE -ne 0) { throw "Inno Setup derlemesi başarısız" }
+          # 0.0.1 -> 0.0.2 yükseltme yolunu test etmek için iki paket üret.
+          foreach ($v in @("0.0.1", "0.0.2")) {
+            & $iscc "/DMyAppVersion=$v" installer.iss
+            if ($LASTEXITCODE -ne 0) {
+              throw "Inno Setup derlemesi başarısız: $v"
+            }
+          }
 
-      - name: Sessiz kurulum ve kaldırma duman testi
+      - name: Sessiz kurulum, yükseltme ve kaldırma duman testi
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $setup = Join-Path $PWD "Output\StockWidget-0.0.0-setup.exe"
-          if (!(Test-Path $setup)) { throw "Kurulum paketi yok: $setup" }
+          $oldSetup = Join-Path $PWD "Output\StockWidget-0.0.1-setup.exe"
+          $newSetup = Join-Path $PWD "Output\StockWidget-0.0.2-setup.exe"
+          foreach ($pkg in @($oldSetup, $newSetup)) {
+            if (!(Test-Path $pkg)) { throw "Kurulum paketi yok: $pkg" }
+          }
 
           # installer.iss: DefaultDirName={localappdata}\Programs\StockWidget
           $installDir = Join-Path $env:LOCALAPPDATA "Programs\StockWidget"
@@ -148,22 +161,44 @@ jobs:
           Write-Host "Beklenen sürüm: $expected"
           $logDir = Join-Path $env:RUNNER_TEMP "stockwidget-installer-smoke"
           New-Item -ItemType Directory -Force $logDir | Out-Null
-          $installLog = Join-Path $logDir "install.log"
+          $oldLog = Join-Path $logDir "install-old.log"
+          $upgradeLog = Join-Path $logDir "upgrade.log"
           $uninstallLog = Join-Path $logDir "uninstall.log"
           $silentArgs = @("/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES")
 
+          function Assert-Version([string]$path, [string]$expected) {
+            $actual = (cmd /c "`"$path`" --version 2>&1").Trim()
+            Write-Host "Kurulan exe -> $actual"
+            if ($actual -ne $expected) {
+              throw "Sürüm uyuşmuyor: $actual != $expected"
+            }
+          }
+
           try {
-            $install = Start-Process -FilePath $setup -Wait -PassThru `
-              -ArgumentList ($silentArgs + "/LOG=`"$installLog`"")
-            if ($install.ExitCode -ne 0) {
-              throw "Sessiz kurulum hata kodu: $($install.ExitCode)"
+            # 1) Eski sürümü kur
+            $old = Start-Process -FilePath $oldSetup -Wait -PassThru `
+              -ArgumentList ($silentArgs + "/LOG=`"$oldLog`"")
+            if ($old.ExitCode -ne 0) {
+              throw "Eski sürüm kurulum hata kodu: $($old.ExitCode)"
             }
             if (!(Test-Path $installedExe)) { throw "Kurulan exe yok: $installedExe" }
+            Assert-Version $installedExe $expected
 
-            # Penceresiz exe'nin stdout'u PowerShell `&` ile gelmez; cmd /c kullan.
-            $v = (cmd /c "`"$installedExe`" --version 2>&1").Trim()
-            Write-Host "Kurulan exe -> $v"
-            if ($v -ne $expected) { throw "Sürüm uyuşmuyor: $v != $expected" }
+            # 2) Yeni sürümü üzerine kur (yükseltme yolu)
+            $new = Start-Process -FilePath $newSetup -Wait -PassThru `
+              -ArgumentList ($silentArgs + "/LOG=`"$upgradeLog`"")
+            if ($new.ExitCode -ne 0) {
+              throw "Yükseltme hata kodu: $($new.ExitCode)"
+            }
+            if (!(Test-Path $installedExe)) {
+              throw "Yükseltme sonrası exe yok: $installedExe"
+            }
+            Assert-Version $installedExe $expected
+            $uninstallers = @(Get-ChildItem -Path $installDir -Filter "unins*.exe" `
+              -File -ErrorAction SilentlyContinue)
+            if ($uninstallers.Count -ne 1) {
+              throw "Yükseltme sonrası kaldırıcı sayısı: $($uninstallers.Count)"
+            }
           }
           finally {
             # Hata yolunda da kurulum/kaldırma adımlarından süreç kalmasın.

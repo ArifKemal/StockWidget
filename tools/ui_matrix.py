@@ -72,6 +72,10 @@ def run_scale(scale):
         dlg.update_idletasks()
         assert dlg.winfo_width() > 100
         dlg.destroy()
+        dlg = app.open_group_editor()
+        dlg.update_idletasks()
+        assert dlg.winfo_width() > 100
+        dlg.destroy()
         dlg = app.open_portfolio_editor()
         dlg.update_idletasks()
         assert dlg.winfo_width() > 100

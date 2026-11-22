@@ -12,17 +12,26 @@ import datetime
 import calendar
 import email.utils
 import logging
+import platform
 import random
 import shutil
 import threading
 import urllib.parse
 import webbrowser
+import zipfile
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox
 from logging.handlers import RotatingFileHandler
 
 import requests
+
+import i18n
+from i18n import tr as T
+
+from market_calendar import (  # noqa: F401  (takvim fonksiyonları dışa aktarılır)
+    PROFILE_LABEL, crypto_phase, exchange_profile, market_state_phase,
+    phase_label, tr_half_days, tr_holidays, tr_phase)
 
 try:
     import pystray
@@ -40,6 +49,8 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
     RESAMPLE_LANCZOS = None
+
+i18n.install_tk_translation()
 
 APP_NAME = "StockWidget"
 APP_VERSION = "1.1.0"
@@ -75,6 +86,9 @@ CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 LOG_FILE = os.path.join(DATA_DIR, "sw.log")
 SNAPSHOT_FILE = os.path.join(DATA_DIR, "snapshot.json")
 UPDATE_FILE = os.path.join(DATA_DIR, "update.json")
+HISTORY_FILE = os.path.join(DATA_DIR, "portfolio-history.json")
+ALARM_HISTORY_FILE = os.path.join(DATA_DIR, "alarm-history.json")
+SERIES_CACHE_FILE = os.path.join(DATA_DIR, "series-cache.json")
 # Eski sürümler config'i script/exe yanına yazıyordu; ilk açılışta taşınır.
 LEGACY_CONFIG = os.path.join(
     os.path.dirname(os.path.abspath(sys.executable)) if FROZEN else BASE_DIR,
@@ -131,6 +145,7 @@ def quote_url(symbol, include_prepost=True, et=None):
     url = API_URL.format(s=symbol)
     start, end = session_epoch_range(et)
     url += "&period1=%d&period2=%d" % (start, end)
+    url += "&events=div%2Csplits"
     if include_prepost:
         url += "&includePrePost=true"
     return url
@@ -180,6 +195,14 @@ SETTINGS_DEFAULTS = {
     "sort_mode": "manual",
     "portfolio_show_cost": False,
     "alarms": {},
+    "quiet_enabled": False,
+    "quiet_start": 23,
+    "quiet_end": 8,
+    "focus_mode": False,
+    "focus_symbol": "",
+    "symbol_groups": {},
+    "group_filter": "",
+    "language": "tr",
 }
 
 DEFAULT_SYMBOLS = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN"]
@@ -589,6 +612,21 @@ def clean_positions(value):
     return out
 
 
+def clean_symbol_groups(value):
+    """{sembol: grup adı} eşlemesini doğrular; boş/geçersizleri atar."""
+    out = {}
+    if not isinstance(value, dict):
+        return out
+    for key, group in value.items():
+        sym = clean_symbol(key)
+        if not sym or not isinstance(group, str):
+            continue
+        name = group.strip()[:24]
+        if name:
+            out[sym] = name
+    return out
+
+
 def clean_alarms(value):
     """Sembol başına fiyat/yüzde alarmlarını doğrular.
 
@@ -604,7 +642,7 @@ def clean_alarms(value):
         if not sym or not isinstance(rec, dict):
             continue
         clean = {}
-        for field in ("above", "below", "pct"):
+        for field in ("above", "below", "pct", "profit", "loss"):
             number = _to_float(rec.get(field))
             if number is not None and number > 0:
                 clean[field] = number
@@ -670,12 +708,28 @@ def portfolio_csv_rows(positions, last):
     return rows
 
 
-def evaluate_alarm(sym, info, rule, state, extended=False):
+def is_quiet_time(now, start, end):
+    """Sessiz saat aralığında mı? Gece yarısını aşan aralıkları destekler."""
+    try:
+        hour = int(now.hour)
+        start = int(start) % 24
+        end = int(end) % 24
+    except (AttributeError, TypeError, ValueError):
+        return False
+    if start == end:
+        return False
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end
+
+
+def evaluate_alarm(sym, info, rule, state, extended=False, position=None):
     """Alarmı değerlendirip state'i günceller; yeni olay metinlerini döndürür.
 
-    State {sym: {"above": bool, "below": bool, "pct": bool}} biçimindedir.
-    Koşul devam ettiği sürece bildirim tekrarlanmaz; koşul bozulunca alarm
-    yeniden kurulur. Böylece her yenilemede tepsi bildirimi yağmuru olmaz.
+    State {sym: {"above": bool, "below": bool, "pct": bool,
+    "profit": bool, "loss": bool}} biçimindedir. Koşul devam ettiği sürece
+    bildirim tekrarlanmaz; koşul bozulunca alarm yeniden kurulur.
+    `position` verilirse maliyete göre kâr/zarar eşikleri de denetlenir.
     """
     events = []
     price, pct = alarm_quote(info, extended)
@@ -702,7 +756,294 @@ def evaluate_alarm(sym, info, rule, state, extended=False):
             events.append("%s günlük değişim %+.2f%% (eşik ±%.2f%%)"
                           % (sym, pct, rule["pct"]))
         flags["pct"] = bool(active)
+    avg = _to_float((position or {}).get("avg"))
+    qty = _to_float((position or {}).get("qty"))
+    if avg and avg > 0 and qty and qty > 0:
+        pl_pct = (price / avg - 1.0) * 100.0
+        for kind, active, label in (
+                ("profit", pl_pct >= rule.get("profit", math.inf), "kâr"),
+                ("loss", pl_pct <= -rule.get("loss", math.inf), "zarar")):
+            if kind not in rule:
+                continue
+            if active and not flags.get(kind):
+                events.append("%s maliyete göre %s %+.2f%% (eşik %.1f%%)"
+                              % (sym, label, pl_pct, rule[kind]))
+            flags[kind] = bool(active)
     return events
+
+
+def _atomic_write_json(path, payload):
+    """JSON dosyasını geçici dosya + yer değiştirme ile atomik yazar."""
+    tmp = path + ".tmp"
+    try:
+        folder = os.path.dirname(path)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, separators=(",", ":"))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+        return True
+    except (OSError, TypeError, ValueError) as exc:
+        log.debug("JSON yazılamadı (%s): %s", path, exc)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return False
+
+
+HISTORY_MAX_ENTRIES = 400
+
+
+def clean_history(value):
+    """Portföy geçmişi: günlük, para birimi başına toplamlar."""
+    entries = value.get("entries") if isinstance(value, dict) else value
+    if not isinstance(entries, list):
+        return []
+    out = []
+    seen = set()
+    for rec in entries:
+        if not isinstance(rec, dict):
+            continue
+        try:
+            day = datetime.date.fromisoformat(str(rec.get("date")))
+        except (TypeError, ValueError):
+            continue
+        totals = rec.get("totals")
+        if not isinstance(totals, dict):
+            continue
+        clean_totals = {}
+        for cur, bucket in totals.items():
+            if not isinstance(cur, str) or not isinstance(bucket, dict):
+                continue
+            value_num = _to_float(bucket.get("value"))
+            if value_num is None or value_num < 0:
+                continue
+            clean_totals[cur[:8]] = {
+                "value": value_num,
+                "cost": _to_float(bucket.get("cost")) or 0.0,
+                "day": _to_float(bucket.get("day")) or 0.0,
+            }
+        if not clean_totals or day.isoformat() in seen:
+            continue
+        seen.add(day.isoformat())
+        out.append({"date": day.isoformat(),
+                    "ts": _to_float(rec.get("ts")) or 0.0,
+                    "totals": clean_totals})
+    out.sort(key=lambda item: item["date"])
+    return out[-HISTORY_MAX_ENTRIES:]
+
+
+def record_history(entries, totals, day=None):
+    """Bugünün toplamını ekler/üzerine yazar; geçmişi döndürür."""
+    clean_totals = {}
+    for cur, bucket in (totals or {}).items():
+        if not isinstance(bucket, dict):
+            continue
+        value_num = _to_float(bucket.get("value"))
+        if value_num is None or value_num < 0:
+            continue
+        clean_totals[str(cur)[:8]] = {
+            "value": value_num,
+            "cost": _to_float(bucket.get("cost")) or 0.0,
+            "day": _to_float(bucket.get("day")) or 0.0,
+        }
+    if not clean_totals:
+        return clean_history(entries)
+    day = day or datetime.date.today()
+    if isinstance(day, str):
+        try:
+            day = datetime.date.fromisoformat(day)
+        except ValueError:
+            day = datetime.date.today()
+    iso = day.isoformat()
+    clean = clean_history(entries)
+    existing = next((item for item in clean if item.get("date") == iso), None)
+    if existing and existing.get("totals") == clean_totals:
+        return clean          # aynı gün aynı toplam: gereksiz yazma yok
+    kept = [item for item in clean if item.get("date") != iso]
+    kept.append({"date": iso, "ts": time.time(), "totals": clean_totals})
+    return clean_history(kept)
+
+
+def history_series(entries, currency, days=30):
+    """Tek para birimi için son N kayıtlı günü (tarih, değer) olarak döndürür."""
+    points = []
+    for item in clean_history(entries):
+        bucket = (item.get("totals") or {}).get(currency)
+        if bucket:
+            points.append((item["date"], bucket["value"]))
+    return points[-max(1, int(days)):]
+
+
+def history_change(series):
+    """Serinin ilk ve son değeri arasındaki yüzde değişim; yetersizse None."""
+    if not series or len(series) < 2:
+        return None
+    first = _to_float(series[0][1])
+    last = _to_float(series[-1][1])
+    if first is None or last is None or first <= 0:
+        return None
+    return (last / first - 1.0) * 100.0
+
+
+def load_history():
+    try:
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            return clean_history(json.load(f))
+    except (OSError, ValueError):
+        return []
+
+
+def save_history(entries):
+    return _atomic_write_json(HISTORY_FILE, {"entries": clean_history(entries)})
+
+
+ALARM_HISTORY_MAX = 100
+
+
+def clean_alarm_history(value):
+    entries = value.get("entries") if isinstance(value, dict) else value
+    if not isinstance(entries, list):
+        return []
+    out = []
+    for rec in entries:
+        if not isinstance(rec, dict):
+            continue
+        message = rec.get("message")
+        ts = _to_float(rec.get("ts"))
+        if not isinstance(message, str) or not message.strip() or ts is None:
+            continue
+        out.append({"ts": ts, "message": message.strip()[:300]})
+    out.sort(key=lambda item: item["ts"])
+    return out[-ALARM_HISTORY_MAX:]
+
+
+def append_alarm_history(entries, messages, ts=None):
+    stamp = time.time() if ts is None else ts
+    updated = clean_alarm_history(entries)
+    for message in messages:
+        updated.append({"ts": stamp, "message": str(message)[:300]})
+    return updated[-ALARM_HISTORY_MAX:]
+
+
+def load_alarm_history():
+    try:
+        with open(ALARM_HISTORY_FILE, "r", encoding="utf-8") as f:
+            return clean_alarm_history(json.load(f))
+    except (OSError, ValueError):
+        return []
+
+
+def save_alarm_history(entries):
+    return _atomic_write_json(ALARM_HISTORY_FILE,
+                              {"entries": clean_alarm_history(entries)})
+
+
+def redact_config(cfg):
+    """Destek paketi için hassas portföy/alarm ayrıntılarını çıkarır."""
+    safe = {k: v for k, v in (cfg or {}).items()
+            if k not in ("positions", "alarms", "symbol_groups", "x", "y",
+                         "focus_symbol", "symbols", "group_filter")}
+    safe["symbols_count"] = len(cfg.get("symbols") or [])
+    safe["positions_count"] = len(cfg.get("positions") or {})
+    safe["alarms_count"] = len(cfg.get("alarms") or {})
+    safe["groups_count"] = len(set(
+        (cfg.get("symbol_groups") or {}).values()))
+    return safe
+
+
+def diagnostics_info(cfg, last, history, version=APP_VERSION, now=None):
+    """Destek/tanılama için okunabilir sistem özeti üretir."""
+    now = time.time() if now is None else now
+    data_ts = 0.0
+    for info in (last or {}).values():
+        ts = _to_float((info or {}).get("quote_ts"))
+        if ts:
+            data_ts = max(data_ts, ts)
+    age = ("%.0f dk" % ((now - data_ts) / 60.0)) if data_ts else "bilinmiyor"
+    lines = [
+        "%s %s" % (APP_NAME, version),
+        "zaman: %s" % datetime.datetime.fromtimestamp(now).strftime(
+            "%Y-%m-%d %H:%M:%S"),
+        "frozen: %s" % ("evet" if FROZEN else "hayır"),
+        "platform: %s" % platform.platform(),
+        "python: %s" % platform.python_version(),
+        "veri dizini: %s" % DATA_DIR,
+        "sembol: %d | portföy: %d | alarm: %d | geçmiş: %d gün" % (
+            len(cfg.get("symbols") or []),
+            len(cfg.get("positions") or {}),
+            len(cfg.get("alarms") or {}),
+            len(history or [])),
+        "son fiyat yaşı: %s" % age,
+        "tema/yoğunluk: %s / %s" % (cfg.get("theme"), cfg.get("density")),
+        "sürüm notu: pozisyon adet/maliyet ve alarm eşikleri pakete girmez",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def parse_dividends(events):
+    """Yahoo chart `events.dividends` -> [(ts, amount)] (eskiden yeniye)."""
+    block = (events or {}).get("dividends") or {}
+    out = []
+    if isinstance(block, dict):
+        for key, item in block.items():
+            if not isinstance(item, dict):
+                continue
+            ts = _to_float(item.get("date")) or _to_float(key)
+            amount = _to_float(item.get("amount"))
+            if ts is None or amount is None or amount <= 0:
+                continue
+            out.append((ts, amount))
+    out.sort()
+    return out[-50:]
+
+
+def parse_splits(events):
+    """Yahoo chart `events.splits` -> [(ts, numerator, denominator)]."""
+    block = (events or {}).get("splits") or {}
+    out = []
+    if isinstance(block, dict):
+        for key, item in block.items():
+            if not isinstance(item, dict):
+                continue
+            ts = _to_float(item.get("date")) or _to_float(key)
+            num = _to_float(item.get("numerator"))
+            den = _to_float(item.get("denominator"))
+            if ts is None or not num or not den or num <= 0 or den <= 0:
+                continue
+            out.append((ts, num, den))
+    out.sort()
+    return out[-20:]
+
+
+def _dividend_list(value):
+    if not isinstance(value, list):
+        return []
+    out = []
+    for item in value[:50]:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            continue
+        ts, amount = _to_float(item[0]), _to_float(item[1])
+        if ts is not None and amount is not None and amount > 0:
+            out.append((ts, amount))
+    return out
+
+
+def _split_list(value):
+    if not isinstance(value, list):
+        return []
+    out = []
+    for item in value[:20]:
+        if not isinstance(item, (list, tuple)) or len(item) < 3:
+            continue
+        ts, num, den = (_to_float(item[0]), _to_float(item[1]),
+                        _to_float(item[2]))
+        if ts is not None and num and den and num > 0 and den > 0:
+            out.append((ts, num, den))
+    return out
 
 
 def _read_config_file():
@@ -743,6 +1084,24 @@ def load_config():
         cfg["density"] = SETTINGS_DEFAULTS["density"]
     cfg["positions"] = clean_positions(cfg.get("positions"))
     cfg["alarms"] = clean_alarms(cfg.get("alarms"))
+    groups = clean_symbol_groups(cfg.get("symbol_groups"))
+    cfg["symbol_groups"] = {s: g for s, g in groups.items()
+                            if s in cfg["symbols"]}
+    cfg["quiet_enabled"] = _cfg_bool(cfg, "quiet_enabled", False)
+    for key in ("quiet_start", "quiet_end"):
+        cfg[key] = min(23, max(0, _to_int(
+            cfg.get(key), SETTINGS_DEFAULTS[key])))
+    cfg["focus_mode"] = _cfg_bool(cfg, "focus_mode", False)
+    focus = clean_symbol(cfg.get("focus_symbol"))
+    cfg["focus_symbol"] = focus if focus in cfg["symbols"] else ""
+    group_filter = cfg.get("group_filter")
+    if not isinstance(group_filter, str):
+        group_filter = ""
+    if group_filter and group_filter not in set(cfg["symbol_groups"].values()):
+        group_filter = ""
+    cfg["group_filter"] = group_filter
+    if cfg.get("language") not in ("tr", "en"):
+        cfg["language"] = SETTINGS_DEFAULTS["language"]
     if cfg.get("sort_mode") not in ("manual", "change", "symbol", "value"):
         cfg["sort_mode"] = SETTINGS_DEFAULTS["sort_mode"]
     cfg["portfolio_show_cost"] = _cfg_bool(cfg, "portfolio_show_cost", False)
@@ -854,12 +1213,14 @@ def load_snapshot(symbols):
         for key in SNAPSHOT_LIST_FIELDS:
             clean[key] = _num_list(info.get(key))
         clean["spark_ohlc"] = _ohlc_list(info.get("spark_ohlc"))
+        clean["dividends"] = _dividend_list(info.get("dividends"))
+        clean["splits"] = _split_list(info.get("splits"))
         clean["price"] = price
         clean["prev_close"] = prev
         clean["change_pct"] = pct
         clean["change_abs"] = clean["change_abs"] or 0.0
-        for text_key in ("name", "currency", "exchange",
-                         "market_state", "timezone"):
+        for text_key in ("name", "currency", "exchange", "exchange_code",
+                         "market_state", "timezone", "instrument_type"):
             text = info.get(text_key)
             clean[text_key] = text if isinstance(text, str) else ""
         clean["name"] = clean["name"] or sym
@@ -998,6 +1359,9 @@ def fetch_quote(symbol, include_prepost=True):
     if not result or not isinstance(result[0], dict):
         raise ValueError("no data")
     meta = result[0].get("meta") or {}
+    events = result[0].get("events") or {}
+    dividends = parse_dividends(events)
+    splits = parse_splits(events)
     price = _to_float(meta.get("regularMarketPrice"))
     prev = (_to_float(meta.get("chartPreviousClose"))
             or _to_float(meta.get("previousClose")))
@@ -1073,10 +1437,15 @@ def fetch_quote(symbol, include_prepost=True):
         "name": meta.get("shortName") or meta.get("longName") or symbol,
         "currency": meta.get("currency") or "USD",
         "exchange": meta.get("fullExchangeName") or meta.get("exchangeName") or "",
+        "exchange_code": (meta.get("exchangeName")
+                          if isinstance(meta.get("exchangeName"), str) else ""),
         "market_state": (meta.get("marketState")
                          if isinstance(meta.get("marketState"), str) else ""),
         "timezone": (meta.get("exchangeTimezoneName")
                      if isinstance(meta.get("exchangeTimezoneName"), str) else ""),
+        "instrument_type": (meta.get("instrumentType")
+                            if isinstance(meta.get("instrumentType"), str)
+                            else ""),
         "quote_ts": _to_float(meta.get("regularMarketTime")),
         "price": float(price),
         "prev_close": float(prev),
@@ -1096,6 +1465,8 @@ def fetch_quote(symbol, include_prepost=True):
         "spark_times": spark_times,
         "spark_volumes": spark_volumes,
         "spark_ohlc": spark_ohlc,
+        "dividends": dividends,
+        "splits": splits,
     }
 
 
@@ -1299,7 +1670,8 @@ def round_rect(c, x1, y1, x2, y2, r, fill=None, outline=None, tags=None):
 def fmt_money(value, currency):
     if value is None:
         return "—"
-    prefix = {"USD": "$", "EUR": "€", "GBP": "£"}.get((currency or "").upper())
+    prefix = {"USD": "$", "EUR": "€", "GBP": "£",
+              "TRY": "₺"}.get((currency or "").upper())
     body = "{:,.2f}".format(value)
     if prefix:
         return prefix + body
@@ -1551,7 +1923,7 @@ def render_candles(ohlc, w, h, up_color, down_color, grid=None, grid_lines=0,
 
 
 SERIES_URL = ("https://query1.finance.yahoo.com/v8/finance/chart/"
-              "{s}?range={r}&interval={i}")
+              "{s}?range={r}&interval={i}&events=div%2Csplits")
 
 TF_RANGE = {"1H": ("5d", "15m"), "1A": ("1mo", "1d"), "1Y": ("1y", "1d")}
 TF_TTL = {"1H": 15 * 60, "1A": 60 * 60, "1Y": 60 * 60}
@@ -1560,10 +1932,68 @@ TF_TABS = ("1D", "1H", "1A", "1Y")
 
 _SERIES_CACHE = {}
 SERIES_CACHE_MAX = 32
+_SERIES_DISK_LOADED = False
+
+
+def _series_data_clean(data):
+    """Diskten/memory'den gelen seriyi çizim için güvenli hale getirir."""
+    if not isinstance(data, dict):
+        return None
+    clean = {
+        "closes": _num_list(data.get("closes")),
+        "times": _num_list(data.get("times")),
+        "volumes": _num_list(data.get("volumes")),
+        "ohlc": _ohlc_list(data.get("ohlc")),
+        "dividends": _dividend_list(data.get("dividends")),
+        "splits": _split_list(data.get("splits")),
+    }
+    return clean if len(clean["closes"]) >= 2 else None
+
+
+def load_series_disk(now=None):
+    """Disk önbelleğini TTL içindeki kayıtlarla belleğe yükler (bir kez)."""
+    global _SERIES_DISK_LOADED
+    if _SERIES_DISK_LOADED:
+        return
+    _SERIES_DISK_LOADED = True
+    try:
+        with open(SERIES_CACHE_FILE, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except (OSError, ValueError):
+        return
+    entries = raw.get("entries") if isinstance(raw, dict) else None
+    if not isinstance(entries, dict):
+        return
+    now = time.time() if now is None else now
+    for key, rec in entries.items():
+        if not isinstance(key, str) or not isinstance(rec, dict):
+            continue
+        try:
+            symbol, tf = key.split("|", 1)
+        except ValueError:
+            continue
+        if tf not in TF_TTL:
+            continue
+        ts = _to_float(rec.get("ts"))
+        if ts is None or now - ts >= TF_TTL[tf]:
+            continue
+        data = _series_data_clean(rec.get("data"))
+        if data:
+            _SERIES_CACHE[(symbol, tf)] = (ts, data)
+
+
+def save_series_disk():
+    entries = {}
+    for (symbol, tf), (ts, data) in list(_SERIES_CACHE.items())[-SERIES_CACHE_MAX:]:
+        clean = _series_data_clean(data)
+        if clean:
+            entries["%s|%s" % (symbol, tf)] = {"ts": ts, "data": clean}
+    _atomic_write_json(SERIES_CACHE_FILE, {"entries": entries})
 
 
 def fetch_series(symbol, tf):
     """Seçilen zaman aralığı için kapanış serisi (tembel + önbellekli)."""
+    load_series_disk()
     key = (symbol, tf)
     now = time.time()
     hit = _SERIES_CACHE.get(key)
@@ -1577,6 +2007,7 @@ def fetch_series(symbol, tf):
     if not result or not isinstance(result[0], dict):
         raise ValueError("empty series")
     res = result[0]
+    events = res.get("events") or {}
     stamps = res.get("timestamp") or []
     quote = (res.get("indicators") or {}).get("quote") or [{}]
     q = quote[0] if isinstance(quote[0], dict) else {}
@@ -1617,10 +2048,13 @@ def fetch_series(symbol, tf):
         "times": [p[0] for p in pts],
         "volumes": [p[5] or 0 for p in pts],
         "ohlc": [(p[2], p[3], p[4], p[1]) for p in pts],
+        "dividends": parse_dividends(events),
+        "splits": parse_splits(events),
     }
     if len(_SERIES_CACHE) >= SERIES_CACHE_MAX:
         _SERIES_CACHE.clear()
     _SERIES_CACHE[key] = (now, data)
+    save_series_disk()
     return data
 
 
@@ -1842,6 +2276,8 @@ class DetailPanel:
                 "times": list(info.get("spark_times") or []),
                 "volumes": list(info.get("spark_volumes") or []),
                 "ohlc": list(info.get("spark_ohlc") or []),
+                "dividends": list(info.get("dividends") or []),
+                "splits": list(info.get("splits") or []),
             }
         data = self.series.get(self.tf) or {}
         return {
@@ -1849,6 +2285,8 @@ class DetailPanel:
             "times": list(data.get("times") or []),
             "volumes": list(data.get("volumes") or []),
             "ohlc": list(data.get("ohlc") or []),
+            "dividends": list(data.get("dividends") or []),
+            "splits": list(data.get("splits") or []),
         }
 
     # ---------- chart hover ----------
@@ -2122,6 +2560,56 @@ class DetailPanel:
             "prev": prev, "col": col, "candle": candle,
             "cur": info.get("currency") or "USD",
         }
+        self._draw_event_markers(data, pad, x2, y1, y2)
+        self._draw_position_lines(info, lo, hi, rng, pad, x2, y1, y2)
+
+    def _draw_event_markers(self, data, pad, x2, y1, y2):
+        """Grafik aralığındaki temettü (T) ve bölünme (B) işaretleri."""
+        stamps = self._plot.get("stamps") or []
+        if not stamps or self._plot.get("candle"):
+            return
+        if self.tf == "1D":
+            tolerance = 3 * 3600
+        elif self.tf == "1H":
+            tolerance = 12 * 3600
+        elif self.tf == "1A":
+            tolerance = 3 * 86400
+        else:
+            tolerance = 12 * 86400
+        lo_ts, hi_ts = min(stamps), max(stamps)
+        markers = [("T", ts, AMBER) for ts, _ in data.get("dividends") or []]
+        markers += [("B", ts, ACCENT) for ts, _n, _d in data.get("splits") or []]
+        if not markers:
+            return
+        drawn = 0
+        for label, ts, color in sorted(markers, key=lambda item: item[1]):
+            if ts < lo_ts - tolerance or ts > hi_ts + tolerance:
+                continue
+            idx = min(range(len(stamps)), key=lambda i: abs(stamps[i] - ts))
+            if abs(stamps[idx] - ts) > tolerance:
+                continue
+            x = pad + (x2 - pad) * idx / float(max(1, len(stamps) - 1))
+            self.canvas.create_text(x, y1 + self.s(5), text=label,
+                                    fill=color, font=("Segoe UI", 6, "bold"))
+            self.canvas.create_line(x, y1 + self.s(9), x, y2 - self.s(2),
+                                    fill=color, dash=(1, 4))
+            drawn += 1
+            if drawn >= 8:
+                break
+
+    def _draw_position_lines(self, info, lo, hi, rng, pad, x2, y1, y2):
+        """Portföyde hedef ve ortalama maliyet varsa grafikte çizgi göster."""
+        rec = (self.app.cfg.get("positions") or {}).get(self.symbol) or {}
+        for key, label, color in (("target", "hedef", ACCENT),
+                                  ("avg", "maliyet", DIM)):
+            value = _to_float(rec.get(key))
+            if value is None or not (lo <= value <= hi) or hi <= lo:
+                continue
+            y = y2 - (value - lo) / rng * (y2 - y1)
+            self.canvas.create_line(pad, y, x2, y, fill=color, dash=(3, 4))
+            self.canvas.create_text(pad + self.s(2), y - self.s(4),
+                                    text=label, anchor="w", fill=color,
+                                    font=("Segoe UI", 6))
 
     def _draw_mode_btn(self, x2, y1, y2):
         label = "mum" if self.mode == "line" else "çizgi"
@@ -2268,7 +2756,16 @@ class DetailPanel:
         c.create_line(pad, s(366), x2, s(366), fill=DIVIDER)
         state = MARKET_STATE_LABEL.get(
             (info.get("market_state") or "").upper(), "")
-        meta_txt = " · ".join(x for x in (info.get("exchange"), cur, state) if x)
+        event_txt = ""
+        splits = info.get("splits") or []
+        divs = info.get("dividends") or []
+        if splits:
+            _ts, num, den = splits[-1]
+            event_txt = "B %g:%g" % (num, den)
+        elif divs:
+            event_txt = "T %.2f" % divs[-1][1]
+        meta_txt = " · ".join(
+            x for x in (info.get("exchange"), cur, state, event_txt) if x)
         c.create_text(pad, s(381), text=meta_txt or "—", anchor="w",
                       fill=DIM, font=("Segoe UI", 7))
         when = info.get("quote_ts")
@@ -2289,11 +2786,15 @@ class StockWidget:
     def __init__(self):
         self.S = _init_dpi()
         self.cfg = load_config()
+        i18n.set_language(self.cfg.get("language", "tr"))
         apply_palette(self.cfg["theme"])
         self.alpha = float(self.cfg["opacity"])
         self.density = self.cfg["density"]
         # Açılışta kart boş kalmasın: son başarılı fiyatlar anında gösterilir.
         self.last, self._snap_ts = load_snapshot(self.cfg["symbols"])
+        self.history = load_history()
+        self.alarm_history = load_alarm_history()
+        self._alarm_mute_until = 0.0
         self.offline = False
         self.stale = bool(self.last)   # canlı yanıt gelene kadar: önbellek
         self._hover_row = None
@@ -2306,6 +2807,8 @@ class StockWidget:
         self._alarms_dlg = None
         self._alarm_msg = ""
         self._alarm_until = 0.0
+        self._market_tip = None
+        self._market_detail = ""
 
         self.root = tk.Tk()
         self.root.title("StockWidget")
@@ -2370,6 +2873,7 @@ class StockWidget:
         self._dy = 0
         self.build_ui()
         self._restore_position()
+        self._record_history()
 
         self.canvas.bind("<Button-1>", self._press)
         self.canvas.bind("<B1-Motion>", self._drag)
@@ -2393,12 +2897,20 @@ class StockWidget:
         self.canvas.tag_bind("refresh_btn", "<Button-1>",
                              lambda e: self.root.after(
                                  10, self._header_refresh))
+        self.canvas.tag_bind("market_dot", "<Enter>",
+                             self._show_market_tip)
+        self.canvas.tag_bind("market_dot", "<Leave>",
+                             lambda e: self._hide_market_tip())
         self.root.protocol("WM_DELETE_WINDOW", self.close_window)
         self.root.bind("<F5>", lambda e: self._header_refresh())
         self.root.bind("<Up>", lambda e: self._select_relative(-1))
         self.root.bind("<Down>", lambda e: self._select_relative(1))
         self.root.bind("<Return>", self._activate_selected)
         self.root.bind("<Escape>", lambda e: self.close_detail())
+        self.root.bind("<Control-Right>",
+                       lambda e: self._focus_step(1))
+        self.root.bind("<Control-Left>",
+                       lambda e: self._focus_step(-1))
 
         self._setup_tray()
         threading.Thread(target=hotkey_loop,
@@ -2429,6 +2941,15 @@ class StockWidget:
     def _ordered_symbols(self):
         """Görünüm sırası; cfg'deki elle sıralama her zaman korunur."""
         symbols = list(self.cfg.get("symbols") or [])
+        focus = self.cfg.get("focus_symbol") or ""
+        if self.cfg.get("focus_mode") and focus in symbols:
+            return [focus]
+        group_filter = self.cfg.get("group_filter") or ""
+        if group_filter:
+            groups = self.cfg.get("symbol_groups") or {}
+            filtered = [s for s in symbols if groups.get(s) == group_filter]
+            if filtered:
+                symbols = filtered
         mode = self.cfg.get("sort_mode", "manual")
         if mode == "symbol":
             return sorted(symbols)
@@ -2453,6 +2974,75 @@ class StockWidget:
         self.sort_var.set(mode)
         save_config(self.cfg)
         self.build_ui()
+
+    def _refresh_group_menu(self):
+        if not hasattr(self, "group_menu"):
+            return
+        self.group_menu.delete(0, "end")
+        self.group_menu.add_radiobutton(
+            label="Tümü", value="", variable=self.group_var,
+            command=lambda: self.set_group_filter(""))
+        names = sorted({g for g in (self.cfg.get("symbol_groups") or {}).values()
+                        if g})
+        for name in names:
+            self.group_menu.add_radiobutton(
+                label=name, value=name, variable=self.group_var,
+                command=lambda n=name: self.set_group_filter(n))
+
+    def set_group_filter(self, name):
+        self.cfg["group_filter"] = name if isinstance(name, str) else ""
+        self.group_var.set(self.cfg["group_filter"])
+        save_config(self.cfg)
+        self.build_ui()
+        self._restore_position()
+
+    def toggle_focus(self):
+        if self.cfg.get("focus_mode"):
+            self.cfg["focus_mode"] = False
+        else:
+            sym = (self.cfg.get("focus_symbol")
+                   or (self._view_symbols[0] if self._view_symbols else ""))
+            if not sym:
+                self.focus_var.set(False)
+                return
+            self.cfg["focus_symbol"] = sym
+            self.cfg["focus_mode"] = True
+        self.focus_var.set(bool(self.cfg.get("focus_mode")))
+        save_config(self.cfg)
+        self.build_ui()
+        self._restore_position()
+
+    def set_focus_symbol(self, sym):
+        if sym not in (self.cfg.get("symbols") or []):
+            return
+        self.cfg["focus_symbol"] = sym
+        self.cfg["focus_mode"] = True
+        self.focus_var.set(True)
+        save_config(self.cfg)
+        self.build_ui()
+        self._restore_position()
+
+    def _focus_step(self, delta):
+        symbols = self.cfg.get("symbols") or []
+        if not symbols:
+            return
+        cur = self.cfg.get("focus_symbol") or ""
+        idx = symbols.index(cur) if cur in symbols else 0
+        self.set_focus_symbol(symbols[(idx + delta) % len(symbols)])
+
+    def mute_alarms(self, minutes=60):
+        self._alarm_mute_until = time.time() + max(1, int(minutes)) * 60
+        log.info("alarmlar %d dakika susturuldu", minutes)
+        self._alarm_msg = "Alarmlar %d dakika susturuldu" % minutes
+        self._alarm_until = time.time() + 5
+        self._update_status()
+
+    def unmute_alarms(self):
+        self._alarm_mute_until = 0.0
+        log.info("alarm susturma kaldırıldı")
+        self._alarm_msg = "Alarm susturma kaldırıldı"
+        self._alarm_until = time.time() + 5
+        self._update_status()
 
     def _move_symbol(self, sym, delta):
         symbols = self.cfg.get("symbols") or []
@@ -2508,8 +3098,23 @@ class StockWidget:
         m.add_separator()
         m.add_command(label="Sembol ekle / çıkar…",
                       command=self.open_symbol_editor)
+        m.add_command(label="Gruplar…", command=self.open_group_editor)
         m.add_command(label="Portföy…", command=self.open_portfolio_editor)
         m.add_command(label="Alarmlar…", command=self.open_alarm_editor)
+        m.add_command(label="Alarmları 1 saat sustur",
+                      command=lambda: self.mute_alarms(60))
+        m.add_command(label="Alarm susturmayı kaldır",
+                      command=self.unmute_alarms)
+        self.focus_var = tk.BooleanVar(
+            value=bool(self.cfg.get("focus_mode")))
+        m.add_checkbutton(label="Odak modu", variable=self.focus_var,
+                          command=self.toggle_focus)
+        self.group_var = tk.StringVar(
+            value=self.cfg.get("group_filter") or "")
+        self.group_menu = tk.Menu(m, tearoff=0, bg=MENU_BG, fg=FG,
+                                  activebackground=MENU_ACTIVE)
+        self._refresh_group_menu()
+        m.add_cascade(label="Grup", menu=self.group_menu)
         self.remove_menu = tk.Menu(m, tearoff=0, bg=MENU_BG, fg=FG,
                                    activebackground=MENU_ACTIVE)
         m.add_cascade(label="Hızlı çıkar", menu=self.remove_menu)
@@ -2536,6 +3141,7 @@ class StockWidget:
     def _style_menus(self):
         for mm in (getattr(self, "menu", None), self.remove_menu,
                    getattr(self, "sort_menu", None),
+                   getattr(self, "group_menu", None),
                    getattr(self, "row_menu", None)):
             if mm is None:
                 continue
@@ -2782,7 +3388,8 @@ class StockWidget:
             pass
 
     def _row_height(self):
-        n = len(self.cfg["symbols"])
+        n = len(getattr(self, "_view_symbols", None)
+                or self.cfg["symbols"])
         extra = self.s(26) if self._has_portfolio() else 0
         return (self.HEADER_H + n * self.ROW_H + self.s(30) + extra)
 
@@ -2814,7 +3421,8 @@ class StockWidget:
         dot_x = time_x - self.s(30)
         self.dot_id = c.create_oval(dot_x, self.s(14),
                                     dot_x + self.s(5), self.s(19),
-                                    fill=MUTED, outline="")
+                                    fill=MUTED, outline="",
+                                    tags=("market_dot",))
         self.phase_id = c.create_text(dot_x - self.s(5), self.s(17), text="",
                                       anchor="e", fill=AMBER,
                                       font=("Segoe UI", 6, "bold"))
@@ -2880,12 +3488,15 @@ class StockWidget:
         spark = info.get("spark") or []
         flags = (getattr(self, "_alarm_state", {}).get(sym) or {})
         alarm_flags = tuple(sorted(k for k, v in flags.items() if v))
+        pos_rec = (self.cfg.get("positions") or {}).get(sym) or {}
+        pos_key = (_to_float(pos_rec.get("qty")), _to_float(pos_rec.get("avg")))
         # Değişmeyen satırı yeniden çizmek yerine mevcut canvas öğelerini koru.
         key = (info.get("price"), info.get("change_pct"),
                info.get("ext_session"), info.get("ext_price"),
                info.get("ext_change_pct"), info.get("name"),
                info.get("currency"), self.offline,
-               getattr(self, "stale", False), alarm_flags, tuple(spark))
+               getattr(self, "stale", False), alarm_flags, pos_key,
+               tuple(spark))
         keys = getattr(self, "_render_keys", None)
         if keys is None:
             keys = self._render_keys = {}
@@ -2935,16 +3546,30 @@ class StockWidget:
             c.create_text(self.PAD + self.s(64), y + self.ro(12), text="◆",
                           fill=AMBER, font=("Segoe UI", 6),
                           tags=(it["tag"],))
-        # şirket adı (sparkline ile rozet arasında)
+        # şirket adı ve (varsa) pozisyon K/Z yüzdesi
         name = info.get("name") or ""
         nx = self.PAD + self.s(78)
-        avail = x1 - nx - self.s(6)
+        pl_txt = ""
+        pl_col = DIM
+        qty = _to_float(pos_rec.get("qty"))
+        avg = _to_float(pos_rec.get("avg"))
+        base_price = _to_float(info.get("price"))
+        if qty and qty > 0 and avg and avg > 0 and base_price is not None:
+            pl_pct = (base_price / avg - 1.0) * 100.0
+            pl_txt = "%+.1f%%" % pl_pct
+            pl_col = GREEN if pl_pct >= 0 else RED
+        pl_w = self.font_name.measure(pl_txt) + self.s(6) if pl_txt else 0
+        avail = x1 - nx - self.s(6) - pl_w
         if name and avail > self.s(14):
             txtname = self._ellipsize(name, self.font_name, avail)
             if txtname:
                 c.create_text(nx, y1 + ph / 2.0, text=txtname, anchor="w",
                               fill=DIM, font=self.f_name,
                               tags=(it["tag"],))
+        if pl_txt:
+            c.create_text(x1 - self.s(6), y1 + ph / 2.0, text=pl_txt,
+                          anchor="e", fill=pl_col, font=self.f_name,
+                          tags=(it["tag"],))
         # sparkline (PIL ile anti-aliased; aynı seri için PhotoImage önbelleği)
         sw, sh = self.s(72), self.ro(16)
         if len(spark) > 1:
@@ -2994,8 +3619,9 @@ class StockWidget:
                 continue
             use_ext = (self.cfg.get("extended_hours", True)
                        and rule.get("extended", False))
-            events.extend(evaluate_alarm(sym, info, rule,
-                                         self._alarm_state, use_ext))
+            position = (self.cfg.get("positions") or {}).get(sym)
+            events.extend(evaluate_alarm(sym, info, rule, self._alarm_state,
+                                         use_ext, position))
         if events:
             self._notify_alarms(events)
         return events
@@ -3006,6 +3632,16 @@ class StockWidget:
         text = events[0]
         if len(events) > 1:
             text += " (+%d alarm)" % (len(events) - 1)
+        self.alarm_history = append_alarm_history(self.alarm_history, events)
+        save_alarm_history(self.alarm_history)
+        now = datetime.datetime.now()
+        quiet = (self.cfg.get("quiet_enabled")
+                 and is_quiet_time(now, self.cfg.get("quiet_start", 23),
+                                   self.cfg.get("quiet_end", 8)))
+        muted = getattr(self, "_alarm_mute_until", 0) > time.time()
+        if quiet or muted:
+            log.info("alarm bildirimi sessize alındı")
+            return
         self._alarm_msg = text
         self._alarm_until = time.time() + 60
         self._update_status()
@@ -3017,25 +3653,52 @@ class StockWidget:
         except Exception:
             log.info("alarm tepsi bildirimi gösterilemedi")
 
+    def _record_history(self):
+        """Portföyün günlük toplamını (para birimi başına) yerelde sakla."""
+        totals = self._portfolio_by_currency()
+        if not totals:
+            return
+        updated = record_history(getattr(self, "history", []), totals)
+        old = getattr(self, "history", [])
+        if updated != old:
+            self.history = updated
+            save_history(updated)
+
+    def _show_market_tip(self, event=None):
+        text = getattr(self, "_market_detail", "")
+        if not text:
+            return
+        self._hide_market_tip()
+        try:
+            tip = tk.Toplevel(self.root)
+            tip.overrideredirect(True)
+            tip.attributes("-topmost", True)
+            tip.configure(bg=MENU_BG, highlightthickness=1,
+                          highlightbackground=DIVIDER)
+            tk.Label(tip, text=text, bg=MENU_BG, fg=FG,
+                     font=("Segoe UI", 8), justify="left").pack(
+                padx=self.s(8), pady=self.s(5))
+            tip.update_idletasks()
+            x = self.root.winfo_rootx() + self.W - tip.winfo_reqwidth() - self.s(8)
+            y = self.root.winfo_rooty() + self.s(24)
+            tip.geometry("+%d+%d" % (max(0, x), y))
+            self._market_tip = tip
+        except tk.TclError:
+            self._market_tip = None
+
+    def _hide_market_tip(self):
+        tip = getattr(self, "_market_tip", None)
+        self._market_tip = None
+        if tip is not None:
+            try:
+                tip.destroy()
+            except tk.TclError:
+                pass
+
     def _update_status(self):
         c = self.canvas
-        phase = market_phase()
-        # Yahoo'nun kendi marketState'i ABD dışı piyasalarda ET takviminden
-        # daha doğrudur; alan varsa onu kullan (aynı yanıt, ek istek yok).
-        for sym in self._view_symbols:
-            state = ((self.last.get(sym) or {}).get("market_state") or "").upper()
-            if state:
-                phase = {"PRE": "pre", "PREPRE": "pre",
-                         "REGULAR": "regular", "POST": "post",
-                         "POSTPOST": "post"}.get(state)
-                break
-        if phase is None:
-            # Seans kapalıyken de son veri seans dışından geliyorsa PÖ/PS yaz
-            for sym in self._view_symbols:
-                info = self.last.get(sym) or {}
-                if info.get("ext_session") in SESSION_LABEL:
-                    phase = info["ext_session"]
-                    break
+        phase, label, details = self._market_summary()
+        self._market_detail = "\n".join(details)
         if self.offline or getattr(self, "stale", False):
             dot = AMBER
         elif phase == "regular":
@@ -3046,14 +3709,6 @@ class StockWidget:
             dot = DIM
         try:
             c.itemconfig(self.dot_id, fill=dot)
-            if not self.cfg.get("extended_hours", True):
-                label = ""
-            elif phase in SESSION_LABEL:
-                label = SESSION_LABEL[phase]
-            elif phase is None:
-                label = "kapalı"
-            else:
-                label = ""
             c.itemconfig(self.phase_id, text=label)
             c.itemconfig(self.time_id, text=datetime.datetime.now().strftime("%H:%M"))
             if (getattr(self, "_alarm_until", 0) > time.time()
@@ -3101,6 +3756,7 @@ class StockWidget:
                     self._render_row(sym, info)
         self._update_status()
         self._update_portfolio()
+        self._record_history()
         if self._detail is not None:
             self._detail.render()
 
@@ -3208,6 +3864,19 @@ class StockWidget:
         m.delete(0, "end")
         m.add_command(label="%s · Alarm kur…" % sym,
                       command=lambda: self.open_alarm_editor(sym))
+        rec = (self.cfg.get("positions") or {}).get(sym) or {}
+        if rec.get("target"):
+            m.add_command(
+                label="Hedef fiyata alarm kur (%s)"
+                      % fmt_money(rec["target"],
+                                  (self.last.get(sym) or {}).get("currency")),
+                command=lambda: self._set_target_alarm(sym))
+        if self.cfg.get("focus_mode"):
+            m.add_command(label="Odak modundan çık",
+                          command=self.toggle_focus)
+        else:
+            m.add_command(label="Sadece bunu göster",
+                          command=lambda: self.set_focus_symbol(sym))
         symbols = self.cfg.get("symbols") or []
         pos = symbols.index(sym) if sym in symbols else -1
         m.add_command(label="Yukarı taşı",
@@ -3228,7 +3897,6 @@ class StockWidget:
                               fmt_money(price, info.get("currency"))))
         m.add_command(label="Yahoo Finance'te aç",
                       command=lambda: self.open_yahoo(sym))
-        rec = (self.cfg.get("positions") or {}).get(sym) or {}
         if rec.get("target"):
             m.add_command(label="Hedef: %s" % fmt_money(
                 rec["target"], info.get("currency")), state="disabled")
@@ -3238,6 +3906,23 @@ class StockWidget:
         m.add_command(label="Listeden çıkar",
                       command=lambda: self.remove_symbol(sym))
         return m
+
+    def _set_target_alarm(self, sym):
+        rec = (self.cfg.get("positions") or {}).get(sym) or {}
+        target = _to_float(rec.get("target"))
+        if target is None or target <= 0:
+            return
+        alarms = dict(self.cfg.get("alarms") or {})
+        rule = dict(alarms.get(sym) or {})
+        rule["above"] = target
+        rule.pop("profit", None)
+        rule.pop("loss", None)
+        alarms[sym] = rule
+        self.cfg["alarms"] = clean_alarms(alarms)
+        save_config(self.cfg)
+        self._alarm_state.pop(sym, None)
+        self.build_ui()
+        log.info("%s için hedef alarmı kuruldu: %s", sym, target)
 
     def _refresh_remove_menu(self):
         self.remove_menu.delete(0, "end")
@@ -3443,6 +4128,115 @@ class StockWidget:
             self.build_ui()
             self._restore_position()
 
+    # ---------- group editor ----------
+
+    def open_group_editor(self):
+        dlg = getattr(self, "_groups_dlg", None)
+        if dlg is not None and dlg.winfo_exists():
+            dlg.deiconify()
+            dlg.lift()
+            dlg.focus_set()
+            return dlg
+        s = self.s
+        dlg = tk.Toplevel(self.root)
+        self._groups_dlg = dlg
+        dlg.configure(bg=CARD)
+        dlg.attributes("-topmost", True)
+        dlg.title("Gruplar")
+        dlg.resizable(False, False)
+        dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
+        try:
+            dlg.iconbitmap(ICON_FILE)
+        except tk.TclError:
+            pass
+        dark_title_bar(dlg)
+        tk.Label(dlg, text="SEMBOL GRUPLARI", bg=CARD, fg=MUTED,
+                 font=self.f_title).pack(anchor="w", padx=s(18),
+                                         pady=(s(14), s(2)))
+        tk.Label(dlg, text="Grup adı yaz; boş bırakılan sembol grupsuz kalır. "
+                           "Menüdeki Grup filtresinden seçebilirsin.",
+                 bg=CARD, fg=DIM, font=self.f_foot, justify="left",
+                 wraplength=s(320)).pack(anchor="w", padx=s(18),
+                                         pady=(0, s(8)))
+        holder = tk.Frame(dlg, bg=CARD)
+        holder.pack(fill="both", expand=True, padx=s(18))
+        cv = tk.Canvas(holder, bg=CARD, highlightthickness=0, bd=0,
+                       height=s(330))
+        cv.pack(side="left", fill="both", expand=True)
+        vs = tk.Scrollbar(holder, orient="vertical", command=cv.yview,
+                          width=s(9), bg=CARD, troughcolor=CARD, bd=0,
+                          relief="flat", activebackground=BTN,
+                          highlightthickness=0)
+        table = tk.Frame(cv, bg=CARD)
+        win = cv.create_window((0, 0), window=table, anchor="nw")
+        cv.configure(yscrollcommand=vs.set)
+        table.bind("<Configure>", lambda e: cv.configure(
+            scrollregion=cv.bbox("all")))
+        cv.bind("<Configure>", lambda e: cv.itemconfigure(win, width=e.width))
+        vs.pack(side="right", fill="y")
+        entries = {}
+        groups = self.cfg.get("symbol_groups") or {}
+        for idx, sym in enumerate(self.cfg.get("symbols") or []):
+            row = tk.Frame(table, bg=CARD)
+            row.pack(fill="x", pady=2)
+            tk.Label(row, text=sym, bg=CARD, fg=FG, font=self.f_sym,
+                     width=10, anchor="w").pack(side="left")
+            e = tk.Entry(row, bg=RAISED, fg=FG, insertbackground=FG,
+                         relief="flat", font=("Segoe UI", 9),
+                         highlightthickness=1,
+                         highlightbackground=ENTRY_BORDER,
+                         highlightcolor=ACCENT)
+            if groups.get(sym):
+                e.insert(0, groups[sym])
+            e.pack(side="left", fill="x", expand=True, ipady=s(3),
+                   padx=(s(6), 0))
+            entries[sym] = e
+        status = tk.Label(dlg, text="", bg=CARD, fg=DIM, font=self.f_foot,
+                          anchor="w")
+        status.pack(fill="x", padx=s(18), pady=(s(6), 0))
+
+        def save(event=None):
+            out = {}
+            for sym, entry in entries.items():
+                name = (entry.get() or "").strip()
+                if name:
+                    out[sym] = name[:24]
+            self.cfg["symbol_groups"] = clean_symbol_groups(out)
+            names = set(self.cfg["symbol_groups"].values())
+            if self.cfg.get("group_filter") not in names:
+                self.cfg["group_filter"] = ""
+                self.group_var.set("")
+            save_config(self.cfg)
+            self._refresh_group_menu()
+            self.build_ui()
+            self._restore_position()
+            status.config(text="Kaydedildi · %d grup"
+                               % len(names), fg=GREEN)
+
+        footer = tk.Frame(dlg, bg=CARD)
+        footer.pack(fill="x", padx=s(18), pady=(s(6), s(12)))
+        tk.Button(footer, text="Kaydet", bg=ACCENT, fg="#ffffff", bd=0,
+                  activebackground=ACCENT_HOVER, activeforeground="#ffffff",
+                  font=("Segoe UI", 9, "bold"), cursor="hand2",
+                  command=save).pack(side="right", ipadx=s(22), ipady=s(4))
+        tk.Button(footer, text="Kapat", bg=BTN, fg=FG, bd=0,
+                  activebackground=BTN_HOVER, activeforeground=FG,
+                  font=("Segoe UI", 9), cursor="hand2",
+                  command=dlg.destroy).pack(side="right", padx=(0, s(6)),
+                                            ipadx=s(14), ipady=s(4))
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
+        dlg.bind("<Control-s>", lambda e: (save(), "break")[1])
+        dlg.bind("<Destroy>", lambda e: (
+            setattr(self, "_groups_dlg", None)
+            if e.widget is dlg else None))
+        dlg.update_idletasks()
+        w = s(360)
+        h = min(s(560), dlg.winfo_reqheight())
+        sm = ctypes.windll.user32.GetSystemMetrics
+        dlg.geometry("%dx%d+%d+%d" % (w, h, sm(0) // 2 - w // 2,
+                                      sm(1) // 2 - h // 2))
+        return dlg
+
     # ---------- alarm editor ----------
 
     def open_alarm_editor(self, focus_sym=None):
@@ -3471,10 +4265,38 @@ class StockWidget:
                                          pady=(s(14), s(2)))
         tk.Label(dlg,
                  text="Boş alan alarm yok demektir. Eşik aşıldığında bir kez "
-                      "tepsi bildirimi gelir; fiyat geri dönünce alarm yeniden kurulur.",
+                      "tepsi bildirimi gelir; fiyat geri dönünce alarm yeniden kurulur. "
+                      "Kâr/Zarar % alanları pozisyon maliyetine göredir.",
                  bg=CARD, fg=DIM, font=self.f_foot, justify="left",
-                 wraplength=s(360)).pack(anchor="w", padx=s(18),
-                                         pady=(0, s(8)))
+                 wraplength=s(450)).pack(anchor="w", padx=s(18),
+                                         pady=(0, s(6)))
+
+        quiet_row = tk.Frame(dlg, bg=CARD)
+        quiet_row.pack(fill="x", padx=s(18), pady=(0, s(6)))
+        quiet_on = tk.BooleanVar(value=bool(self.cfg.get("quiet_enabled")))
+        tk.Checkbutton(quiet_row, text="Sessiz saat", variable=quiet_on,
+                       bg=CARD, fg=MUTED, activebackground=CARD,
+                       activeforeground=FG, selectcolor=RAISED, bd=0,
+                       highlightthickness=0, font=("Segoe UI", 8),
+                       cursor="hand2").pack(side="left")
+        q_start = tk.Entry(quiet_row, width=3, bg=RAISED, fg=FG,
+                           insertbackground=FG, relief="flat",
+                           justify="center", font=(self.mono, 8),
+                           highlightthickness=1,
+                           highlightbackground=ENTRY_BORDER)
+        q_start.insert(0, str(self.cfg.get("quiet_start", 23)))
+        q_start.pack(side="left", padx=(s(6), 0), ipady=s(2))
+        tk.Label(quiet_row, text="–", bg=CARD, fg=MUTED,
+                 font=("Segoe UI", 8)).pack(side="left", padx=s(3))
+        q_end = tk.Entry(quiet_row, width=3, bg=RAISED, fg=FG,
+                         insertbackground=FG, relief="flat",
+                         justify="center", font=(self.mono, 8),
+                         highlightthickness=1,
+                         highlightbackground=ENTRY_BORDER)
+        q_end.insert(0, str(self.cfg.get("quiet_end", 8)))
+        q_end.pack(side="left", ipady=s(2))
+        tk.Label(quiet_row, text="(0–23)", bg=CARD, fg=DIM,
+                 font=("Segoe UI", 6)).pack(side="left", padx=(s(4), 0))
 
         holder = tk.Frame(dlg, bg=CARD)
         holder.pack(fill="both", expand=True, padx=s(18))
@@ -3494,9 +4316,10 @@ class StockWidget:
                                                           width=e.width))
         vs.pack(side="right", fill="y")
 
-        cols = ((0, s(64), "SEMBOL", "w"), (1, s(64), "ÜSTÜNDE", "e"),
-                (2, s(64), "ALTINDA", "e"), (3, s(56), "DEĞİŞİM %", "e"),
-                (4, s(46), "PÖ/PS", "center"), (5, s(22), "", "center"))
+        cols = ((0, s(62), "SEMBOL", "w"), (1, s(58), "ÜSTÜNDE", "e"),
+                (2, s(58), "ALTINDA", "e"), (3, s(52), "DEĞİŞİM %", "e"),
+                (4, s(52), "KÂR %", "e"), (5, s(52), "ZARAR %", "e"),
+                (6, s(40), "PÖ/PS", "center"), (7, s(20), "", "center"))
         for col, width, label, anchor in cols:
             table.grid_columnconfigure(col, minsize=width)
             tk.Label(table, text=label, bg=CARD, fg=DIM,
@@ -3522,45 +4345,40 @@ class StockWidget:
                      anchor="w").grid(row=r, column=0, sticky="w",
                                       pady=s(4))
             cells = {}
-            for col, field in ((1, "above"), (2, "below")):
+            for col, field in enumerate(("above", "below", "pct",
+                                         "profit", "loss"), start=1):
                 box = tk.Frame(table, bg=CARD)
                 box.grid(row=r, column=col, sticky="ew",
-                         padx=(0, s(4)), pady=s(2))
+                         padx=(0, s(3)), pady=s(2))
                 e = mk_num(box)
                 if field in rule:
                     e.insert(0, ("%.6g" % rule[field]).replace(".", ","))
                 cells[field] = e
-            box = tk.Frame(table, bg=CARD)
-            box.grid(row=r, column=3, sticky="ew", padx=(0, s(4)),
-                     pady=s(2))
-            e = mk_num(box)
-            if "pct" in rule:
-                e.insert(0, ("%.6g" % rule["pct"]).replace(".", ","))
-            cells["pct"] = e
             ext = tk.BooleanVar(value=bool(rule.get("extended")))
             chk = tk.Checkbutton(table, variable=ext, bg=CARD, fg=MUTED,
                                  activebackground=CARD, activeforeground=FG,
                                  selectcolor=RAISED, bd=0,
                                  highlightthickness=0, cursor="hand2")
-            chk.grid(row=r, column=4, pady=s(2))
+            chk.grid(row=r, column=6, pady=s(2))
             clear = tk.Button(table, text="✕", bg=CARD, fg=DIM, bd=0,
                               activebackground=RED_DIM, activeforeground=RED,
                               font=("Segoe UI", 8), cursor="hand2",
                               command=lambda: clear_row(sym))
-            clear.grid(row=r, column=5, pady=s(2))
+            clear.grid(row=r, column=7, pady=s(2))
             rows[sym] = {"above": cells["above"], "below": cells["below"],
-                         "pct": cells["pct"], "extended": ext}
+                         "pct": cells["pct"], "profit": cells["profit"],
+                         "loss": cells["loss"], "extended": ext}
 
         if not rows:
             tk.Label(table, text="Takip listesi boş.", bg=CARD, fg=MUTED,
-                     font=self.f_foot).grid(row=1, column=0, columnspan=6,
+                     font=self.f_foot).grid(row=1, column=0, columnspan=8,
                                             pady=s(20))
 
         def clear_row(sym):
             rec = rows.get(sym)
             if not rec:
                 return
-            for key in ("above", "below", "pct"):
+            for key in ("above", "below", "pct", "profit", "loss"):
                 rec[key].delete(0, "end")
             rec["extended"].set(False)
 
@@ -3582,7 +4400,7 @@ class StockWidget:
             out = {}
             for sym, rec in rows.items():
                 values = {}
-                for key in ("above", "below", "pct"):
+                for key in ("above", "below", "pct", "profit", "loss"):
                     value = parse(rec[key])
                     rec[key].config(highlightbackground=(
                         ENTRY_BORDER if value is not False else RED))
@@ -3596,12 +4414,34 @@ class StockWidget:
                 if values:
                     values["extended"] = bool(rec["extended"].get())
                     out[sym] = values
+            try:
+                qs = int(q_start.get())
+                qe = int(q_end.get())
+            except ValueError:
+                status.config(text="Sessiz saat 0–23 arası tam sayı olmalı.",
+                              fg=RED)
+                return
+            if not (0 <= qs <= 23 and 0 <= qe <= 23):
+                status.config(text="Sessiz saat 0–23 arası olmalı.", fg=RED)
+                return
+            self.cfg["quiet_enabled"] = bool(quiet_on.get())
+            self.cfg["quiet_start"] = qs
+            self.cfg["quiet_end"] = qe
             self.cfg["alarms"] = clean_alarms(out)
             save_config(self.cfg)
             self._alarm_state.clear()
             self.build_ui()
             status.config(text="Kaydedildi · %d sembolde alarm"
                                % len(self.cfg["alarms"]), fg=GREEN)
+
+        hist = getattr(self, "alarm_history", [])[-3:]
+        if hist:
+            lines = [datetime.datetime.fromtimestamp(item["ts"]).strftime(
+                "%d.%m %H:%M") + " · " + item["message"] for item in hist]
+            tk.Label(dlg, text="Son alarmlar:\n" + "\n".join(lines),
+                     bg=CARD, fg=DIM, font=("Segoe UI", 6), justify="left",
+                     anchor="w", wraplength=s(450)).pack(
+                fill="x", padx=s(18), pady=(s(2), 0))
 
         footer = tk.Frame(dlg, bg=CARD)
         footer.pack(fill="x", padx=s(18), pady=(s(6), s(12)))
@@ -3620,8 +4460,8 @@ class StockWidget:
             setattr(self, "_alarms_dlg", None)
             if e.widget is dlg else None))
         table.update_idletasks()
-        w = s(390)
-        h = min(s(560), dlg.winfo_reqheight())
+        w = s(495)
+        h = min(s(620), dlg.winfo_reqheight())
         sm = ctypes.windll.user32.GetSystemMetrics
         dlg.geometry("%dx%d+%d+%d" % (w, h, sm(0) // 2 - w // 2,
                                       sm(1) // 2 - h // 2))
@@ -3725,6 +4565,49 @@ class StockWidget:
                            font=("Segoe UI", 6))
             sub.pack(anchor="w")
             stats[key] = (big, sub)
+
+        # ---- portföy geçmişi ----
+        hist_points = history_series(getattr(self, "history", []), cur, 30)
+        if len(hist_points) >= 2:
+            hist_card = tk.Frame(dlg, bg=RAISED, highlightthickness=1,
+                                 highlightbackground=DIVIDER)
+            hist_card.pack(fill="x", padx=s(18), pady=(s(8), 0))
+            hist_head = tk.Frame(hist_card, bg=RAISED)
+            hist_head.pack(fill="x", padx=s(10), pady=(s(6), 0))
+            tk.Label(hist_head, text="PORTFÖY GEÇMİŞİ · SON 30 KAYIT",
+                     bg=RAISED, fg=DIM,
+                     font=("Segoe UI", 6, "bold")).pack(side="left")
+            change = history_change(hist_points)
+            if change is not None:
+                tk.Label(hist_head, text="%+.2f%%" % change, bg=RAISED,
+                         fg=GREEN if change >= 0 else RED,
+                         font=("Segoe UI", 8, "bold")).pack(side="right")
+            hc = tk.Canvas(hist_card, bg=RAISED, height=s(58),
+                           highlightthickness=0, bd=0)
+            hc.pack(fill="x", padx=s(10), pady=(s(2), s(8)))
+            hh = s(56)
+            vals = [value for _day, value in hist_points]
+            lo, hi = min(vals), max(vals)
+            rng = (hi - lo) or 1.0
+            line_col = GREEN if (change or 0) >= 0 else RED
+
+            def draw_hist(event=None):
+                hw = (event.width if event is not None
+                      else hc.winfo_width()) or s(410)
+                hc.delete("all")
+                pts = []
+                for i, value in enumerate(vals):
+                    pts.extend((s(2) + (hw - s(4)) * i
+                                / float(len(vals) - 1),
+                                hh - s(4) - (value - lo) / rng * (hh - s(8))))
+                hc.create_line(*pts, fill=line_col,
+                               width=max(1, int(round(1.6 * self.S))))
+                hc.create_oval(pts[-2] - s(2), pts[-1] - s(2),
+                               pts[-2] + s(2), pts[-1] + s(2),
+                               fill=line_col, outline="")
+
+            hc.bind("<Configure>", draw_hist)
+            hc.after_idle(draw_hist)
 
         # ---- tablo ----
         body = tk.Frame(dlg, bg=CARD)
@@ -4182,6 +5065,45 @@ class StockWidget:
         self.set_theme(key)
         self._settings_note("Tema: %s." % THEME_LABEL.get(key, key))
 
+    def _pick_language(self, key):
+        if key not in ("tr", "en") or key == self.cfg.get("language"):
+            return
+        self.cfg["language"] = key
+        i18n.set_language(key)
+        save_config(self.cfg)
+        self.close_detail(animate=False)
+        for attr in ("_alarms_dlg", "_groups_dlg", "_portfolio_dlg",
+                     "_editor"):
+            dlg = getattr(self, attr, None)
+            if dlg is not None:
+                try:
+                    dlg.destroy()
+                except tk.TclError:
+                    pass
+        # Menü etiketleri oluşturulurken çevrildiği için yeniden kur.
+        for attr in ("menu", "remove_menu", "sort_menu", "group_menu",
+                     "row_menu"):
+            old = getattr(self, attr, None)
+            if old is not None:
+                try:
+                    old.destroy()
+                except tk.TclError:
+                    pass
+        self._build_menu()
+        self.build_ui()
+        self._restore_position()
+        self._style_menus()
+        if self.tray_icon is not None:
+            try:
+                self.tray_icon.stop()
+            except Exception:
+                pass
+            self.tray_icon = None
+            self._setup_tray()
+        self._refresh_settings()
+        self._settings_note("Dil: %s" % ("English" if key == "en"
+                                         else "Türkçe"))
+
     def _pick_density(self, key):
         if key == self.cfg.get("density"):
             return
@@ -4280,6 +5202,47 @@ class StockWidget:
         except OSError:
             log.exception("ayar klasörü açılamadı")
             self._settings_note("Klasör açılamadı.", RED)
+
+    def export_diagnostics(self):
+        dlg = self._settings_dlg
+        parent = dlg if dlg is not None and dlg.winfo_exists() else self.root
+        path = filedialog.asksaveasfilename(
+            parent=parent, title="Tanılama paketi oluştur",
+            defaultextension=".zip",
+            initialfile="stockwidget-tanilama-%s.zip"
+                        % datetime.date.today().strftime("%Y%m%d"),
+            filetypes=[("ZIP", "*.zip")])
+        if not path:
+            return
+        try:
+            info = diagnostics_info(self.cfg, self.last,
+                                    getattr(self, "history", []))
+            info += "tk: %s\n" % tk.TkVersion
+            if self._detail is not None:
+                info += "açık detay: %s\n" % self._detail.symbol
+            with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("sistem.txt", info)
+                zf.writestr("config-redacted.json", json.dumps(
+                    redact_config(self.cfg), indent=2, ensure_ascii=False))
+                for src, name in ((LOG_FILE, "sw.log"),
+                                  (ALARM_HISTORY_FILE, "alarm-history.json"),
+                                  (SNAPSHOT_FILE, "snapshot.json")):
+                    if os.path.exists(src):
+                        try:
+                            with open(src, "r", encoding="utf-8",
+                                      errors="replace") as f:
+                                text = f.read()[-200000:]
+                            zf.writestr(name, text)
+                        except OSError:
+                            pass
+        except (OSError, ValueError, zipfile.BadZipFile) as exc:
+            log.warning("tanılama paketi yazılamadı: %s", exc)
+            messagebox.showwarning("Tanılama", "Paket yazılamadı:\n%s" % exc,
+                                   parent=parent)
+            return
+        log.info("tanılama paketi: %s", path)
+        messagebox.showinfo("Tanılama", "Paket kaydedildi:\n%s" % path,
+                            parent=parent)
 
     def _build_settings(self, dlg, center):
         s = self.s
@@ -4419,6 +5382,11 @@ class StockWidget:
                   lambda: self.cfg["theme"], self._pick_theme).pack(
             side="right", padx=(0, s(9)))
 
+        row, _ = add_row(card, "Dil / Language")
+        segmented(row, [("Türkçe", "tr"), ("English", "en")],
+                  lambda: self.cfg.get("language", "tr"),
+                  self._pick_language).pack(side="right", padx=(0, s(9)))
+
         row, _ = add_row(card, "Opaklık")
         op_val = tk.Label(row, text="%d%%" % int(round(self.alpha * 100)),
                           bg=RAISED, fg=FG, font=(self.mono, 9, "bold"),
@@ -4496,10 +5464,15 @@ class StockWidget:
 
         # ---- sol: gelişmiş ----
         card = section(left_col, "GELİŞMİŞ")
-        row, _ = add_row(card, "Ayar dosyası", "config.json", last=True)
+        row, _ = add_row(card, "Ayar dosyası", "config.json")
         small_button(row, "Klasörü aç",
                      self._open_data_dir).pack(side="right",
                                                padx=(0, s(9)))
+        row, _ = add_row(card, "Tanılama paketi",
+                         "Log + sistem özeti (portföy gizlenir)", last=True)
+        small_button(row, "Oluştur",
+                     self.export_diagnostics).pack(side="right",
+                                                   padx=(0, s(9)))
 
         # ---- sağ: veri ----
         card = section(right_col, "VERİ")
@@ -4669,6 +5642,58 @@ class StockWidget:
                 except tk.TclError:
                     pass
 
+    def _phase_for(self, sym):
+        info = self.last.get(sym) or {}
+        profile = exchange_profile(info, sym)
+        if profile == "generic" and not info:
+            profile = "us"       # ilk veri gelene kadar eski davranış
+        if profile == "tr":
+            return tr_phase()
+        if profile == "crypto":
+            return crypto_phase()
+        if profile == "us":
+            return market_phase()
+        return market_state_phase(info.get("market_state"))
+
+    def _market_active(self):
+        """Herhangi bir sembolün piyasası açık mı? (ABD/BIST/kripto)"""
+        symbols = list(self.cfg.get("symbols") or [])
+        if not symbols:
+            return False
+        return any(self._phase_for(sym) is not None for sym in symbols)
+
+    def _market_summary(self):
+        """(herhangi faz, başlık etiketi, ayrıntı satırları) üretir."""
+        profiles = {}
+        for sym in self._view_symbols or self.cfg.get("symbols") or []:
+            info = self.last.get(sym) or {}
+            profile = exchange_profile(info, sym)
+            if profile == "generic" and not info:
+                profile = "us"
+            if profile not in profiles:
+                profiles[profile] = self._phase_for(sym)
+        if not profiles:
+            profiles = {"us": market_phase()}
+        phases = list(profiles.values())
+        if "regular" in phases:
+            any_phase = "regular"
+        elif any(p in ("pre", "post") for p in phases):
+            any_phase = "pre" if "pre" in phases else "post"
+        else:
+            any_phase = None
+        details = ["%s: %s" % (PROFILE_LABEL.get(profile, profile),
+                               phase_label(phase, profile))
+                   for profile, phase in profiles.items()]
+        if len(profiles) == 1:
+            profile, phase = next(iter(profiles.items()))
+            label = phase_label(phase, profile)
+            if (profile == "us" and phase in ("pre", "post")
+                    and not self.cfg.get("extended_hours", True)):
+                label = ""
+        else:
+            label = "çoklu"
+        return any_phase, label, details
+
     def _refresh_minutes(self, is_open):
         key = "refresh_open" if is_open else "refresh_closed"
         default = (INTERVAL_OPEN if is_open else INTERVAL_CLOSED) // 60
@@ -4695,7 +5720,7 @@ class StockWidget:
     def _fetch_cycle(self):
         """Bir tur veri çeker ve bir sonraki turun gecikmesini döndürür."""
         extended = self.cfg.get("extended_hours", True)
-        is_open = market_active() if extended else market_open()
+        is_open = self._market_active()
         if (not is_open and self.cfg.get("pause_when_closed")
                 and not self._force_refresh):
             # Piyasa kapalı ve yenileme duraklatıldı: ağ isteği yok,
@@ -4717,7 +5742,7 @@ class StockWidget:
             # aynı saniyede geri dönmesin.
             self.queue.put((results, not results))
             return backoff + random.uniform(3, min(30, backoff * 0.1))
-        is_open = market_active() if extended else market_open()
+        is_open = self._market_active()
         interval = self._refresh_minutes(is_open) * 60
         offline = bool(attempted) and not results
         if offline:
@@ -4893,29 +5918,49 @@ class StockWidget:
         # için hepsi root.after ile ana thread'e taşınır (bkz. AGENT.md "Tk tek thread").
         menu = pystray.Menu(
             pystray.MenuItem(
-                "Göster / Gizle",
+                T("Göster / Gizle"),
                 lambda *a: self.root.after(0, self.toggle_visibility),
                 default=True),
-            pystray.MenuItem("Yenile", lambda *a: self.refresh_now()),
+            pystray.MenuItem(T("Yenile"), lambda *a: self.refresh_now()),
             pystray.MenuItem(
-                "Ayarlar…",
+                T("Ayarlar…"),
                 lambda *a: self.root.after(0, self.open_settings_editor)),
             pystray.MenuItem(
-                "Semboller…",
+                T("Semboller…"),
                 lambda *a: self.root.after(0, self.open_symbol_editor)),
             pystray.MenuItem(
-                "Alarmlar…",
+                T("Alarmlar…"),
                 lambda *a: self.root.after(0, self.open_alarm_editor)),
             pystray.MenuItem(
-                "Portföy…",
+                T("Portföy…"),
                 lambda *a: self.root.after(0, self.open_portfolio_editor)),
+            pystray.MenuItem(
+                T("Gruplar…"),
+                lambda *a: self.root.after(0, self.open_group_editor)),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(
-                "Windows'ta otomatik başlat",
+                T("Odak modu"),
+                lambda *a: self.root.after(0, self.toggle_focus),
+                checked=lambda item: bool(self.cfg.get("focus_mode"))),
+            pystray.MenuItem(
+                T("Önceki sembol"),
+                lambda *a: self.root.after(0, lambda: self._focus_step(-1))),
+            pystray.MenuItem(
+                T("Sonraki sembol"),
+                lambda *a: self.root.after(0, lambda: self._focus_step(1))),
+            pystray.MenuItem(
+                T("Alarmları 1 saat sustur"),
+                lambda *a: self.root.after(0, lambda: self.mute_alarms(60))),
+            pystray.MenuItem(
+                T("Alarm susturmayı kaldır"),
+                lambda *a: self.root.after(0, self.unmute_alarms)),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(
+                T("Windows'ta otomatik başlat"),
                 lambda *a: self.root.after(0, self._tray_toggle_startup),
                 checked=lambda item: startup_enabled()),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Çıkış",
+            pystray.MenuItem(T("Çıkış"),
                              lambda *a: self.root.after(0, self.exit_app)),
         )
         return pystray.Icon("StockWidget", self._tray_image(),
@@ -4990,9 +6035,10 @@ class StockWidget:
 
     def hide_window(self):
         self.close_detail(animate=False)
+        self._hide_market_tip()
         # Ana pencere gizlenirken açık pencereler tek başına kalmasın
         for attr in ("_settings_dlg", "_portfolio_dlg", "_editor",
-                     "_alarms_dlg"):
+                     "_alarms_dlg", "_groups_dlg"):
             dlg = getattr(self, attr, None)
             if dlg is None:
                 continue

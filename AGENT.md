@@ -11,6 +11,9 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `AGENT-FEATURES.md` — ücretsiz paket turunun ajan analiz haritası (config
   şeması, fonksiyon sözleşmeleri, veri akışı, test kancaları, geri alma)
 - `test_stock_widget.py` — stdlib `unittest` birim testleri (ağa çıkmaz)
+- `market_calendar.py` — ABD/BIST/kripto profilleri, TR tatilleri (tipli modül)
+- `i18n.py` — TR/EN arayüz çevirisi; Tk metinlerini tek noktadan çevirir
+- `mypy.ini` — kademeli tip kontrolü (önce `market_calendar.py`)
 - `LICENSE` — MIT (2026 Arif Kemal)
 - `StockWidget-onefile.spec` — PyInstaller **onefile** derleme tanımı (ana indirme)
 - `StockWidget.spec` — PyInstaller onedir derleme tanımı (ZIP yedeği)
@@ -67,6 +70,15 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - Test kancaları: `SW_SCALE` DPI ölçeğini, `SW_DISABLE_TRAY=1` tepsiyi kapatır,
   `SW_INSTANCE_SUFFIX` mutex/olay adlarını ayırır (kurulu kopya açıkken duman
   testi çalıştırmak için). Üçü de yalnızca test amaçlıdır.
+- **Piyasa profili:** `_phase_for` ABD için `market_phase`, BIST için
+  `market_calendar.tr_phase`, kripto için 24/7 kullanır. Yeni bir borsa türü
+  eklerken `exchange_profile` + `_phase_for` + `_market_summary` üçlüsünü
+  birlikte güncelle; `pause_when_closed` `_market_active` üzerinden çalışır.
+- **i18n:** Yeni bir kullanıcı metni eklerken Tk `text`/`label` otomatik
+  çevrilir; `i18n._DIRECT` sözlüğüne İngilizce karşılığını ekle. Log/CLI ve
+  config anahtarları çevrilmez. Varsayılan dil `tr` olduğu için testler korunur.
+- **Tanılama:** `redact_config` portföy adet/maliyet ve alarm eşiklerini
+  paketlemez; `diagnostics_info` saf fonksiyondur, test edilir.
 - Döngüler `self.stop_flag` (threading.Event) ile durur; çıkışta thread'ler daemon olduğu için
   süreç sonlanır, kaynaklar (hotkey kaydı, mutex) serbest kalır.
 - Tek örnek: `acquire_single_instance()` adlandırılmış mutex. İkinci kopya `--toggle`
@@ -503,7 +515,8 @@ Kod denetiminde çıkan hatalar giderildi; her madde testle doğrulandı (77 tes
    biçim doğrulanır.
 10. **Paketleme/CI.** Kurulum kısayolları `--toggle` geçirir (kapalıyken kısayol
     uygulamayı açar); `requirements.txt` sabitlendi; CI matrisi 3.11/3.12/3.13,
-    `ruff`, `coverage` (≥25), `SW_SMOKE` GUI testi ve Inno Setup derlemesi içerir;
+    `ruff`, `coverage` (≥40), `mypy`, `SW_SMOKE` GUI testi ve Inno Setup
+derlemesi içerir;
     release `SHA256SUMS.txt` üretir.
 11. **Temizlik.** Kullanılmayan `traceback` importu ve ölü `last_ok` kaldırıldı;
     `ruff check` temiz.
@@ -589,8 +602,9 @@ Yeni özellikler `feature/free-pack` üzerinde geliştirildi ve 2026-11-20'de
   alarm, sıralama, klavye, portföy (hedef/not/CSV), hacim + fiyat ekseni,
   `alarms` / `sort_mode` / `portfolio_show_cost` anahtarları.
 - `tools/screenshot.py` sadeleştirildi: yalnızca `ekran-ana.png` ve
-  `ekran-detay.png` üretir; veri sabit (ağ yok), backdrop topmost, kısayol
-  thread'i "registered" ile değiştirilir. Diğer üç görsel kaldırıldı.
+  `ekran-detay.png` üretir; veri sabit (ağ yok), widget topmost/backdrop altta,
+  boş yakalamada mevcut dosya korunur; kısayol thread'i "registered" ile
+  değiştirilir. Diğer üç görsel kaldırıldı.
 - Not: push yalnızca kullanıcı isterse yapılır.
 - **CI onarımı (2026-11-20):** `audit` işi `requests==2.32.5` + `pillow==11.3.0`
   pinlerinde 78 zafiyet buluyordu → `requests==2.34.2`, `pillow==13.0.0`
@@ -599,3 +613,40 @@ Yeni özellikler `feature/free-pack` üzerinde geliştirildi ve 2026-11-20'de
   beklediği için düşüyordu; artık derlenen `dist\StockWidget\StockWidget.exe`
   sürümüyle karşılaştırılıyor.
 - Bağımlılık PR'ları kapalı: Dependabot `open-pull-requests-limit: 0`.
+
+## Tüm paketler turu (feature/all-packages)
+
+Geri dönüş etiketi: `checkpoint/pre-all-packages-2026-11-22` (f99e523).
+Çalışma dalı: `feature/all-packages`.
+
+1. **Portföy geçmişi.** `portfolio-history.json` günlük/para birimi başına
+   toplam tutar; `record_history` aynı gün aynı toplamda yazmaz. Portföy
+   penceresinde son 30 kayıt mini grafiği (`history_series` / `history_change`).
+2. **Disk grafik önbelleği.** `series-cache.json`; `load_series_disk` TTL içinde
+   belleğe alır, `save_series_disk` atomik yazar. Yeniden açılışta 1H/1A/1Y
+   isteği gerekmeyebilir.
+3. **Temettü/bölünme.** Aynı chart isteğinde `events=div,splits`; quote ve
+   series verisine `dividends` / `splits` eklenir. Grafikte T/B işaretleri,
+   detay alt satırında özet. Yeni istek yok.
+4. **Alarm genişletmesi.** `profit` / `loss` (pozisyon maliyetine göre), sessiz
+   saat (`quiet_*`), 1 saat susturma, `alarm-history.json`, hedef fiyata tek
+   tıkla alarm. Detay grafiğinde hedef ve maliyet çizgileri.
+5. **Kart/UX.** Satırda pozisyon K/Z; odak modu ve Ctrl+←/→; sembol grupları
+   (`symbol_groups`, `group_filter`) + menü filtresi; `Gruplar…` editörü.
+6. **Piyasa profilleri.** `market_calendar.py`: ABD/BIST/kripto profilleri,
+   BIST 10:00–18:00 TR (arife 13:00), 2024–2030 dini bayram tablosu, ₺ biçimi,
+   çoklu piyasa özeti ve fareyle ayrıntı. `_market_active` duraklatmayı profillere
+   göre yönetir; PÖ/PS yalnızca ABD'de.
+7. **Tanılama.** `diagnostics_info` + `redact_config` (portföy/maliyet/alarm
+   eşikleri gizlenir); Ayarlar → Tanılama paketi ZIP.
+8. **TR/EN arayüz.** `i18n.py` Tk Label/Button/Menu/Canvas metinlerini çevirir;
+   Ayarlar → Dil. Varsayılan `tr`. Log/CLI çevrilmez.
+9. **Kalite/dağıtım.** CI: mypy (kademeli), coverage ≥40 (ölçülen ~56;
+   unittest + UI matrisi),
+   Inno 0.0.1→0.0.2 yükseltme testi, Sigstore `attest-build-provenance`
+   (3 artifact). Testler 123; UI matrisi coverage'a dahil (ölçülen ~56%);
+   5 ölçek × 4 tema × 2 yoğunluk + alarm/grup/portföy/ayarlar pencereleri.
+
+Bilinçli sınırlar: BIST dini bayram tablosu yıllık güncellenir; generic borsa
+profili ilk veriden sonra `marketState` kullanır; İngilizce arayüz kullanıcı
+metinlerini kapsar (log/CLI hariç); SignPath/WinGet/Scoop yayını dış onay ister.

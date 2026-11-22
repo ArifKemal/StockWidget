@@ -157,7 +157,7 @@ değişiklikleri cfg sembol sırasını bozmamalı; alarmlar ek Yahoo isteği
 
 ## Test envanteri
 
-96 test başlıca şunları kapsar:
+123 test başlıca şunları kapsar:
 
 - config fuzz / BOM / kesik dosya / `.bak` kurtarma / atomik yazma,
 - tatil takvimi (2000–2100), erken kapanış, yılbaşı kayması,
@@ -178,7 +178,8 @@ Ek araçlar:
 
 ## CI ve release
 
-- `test`: Python 3.11/3.12/3.13, ruff, coverage ≥30, `--version`.
+- `test`: Python 3.11/3.12/3.13, ruff, mypy, coverage ≥40 (unittest + UI
+  matrisi), `--version`.
 - `audit`: `pip-audit` (ayrı Ubuntu job).
 - `build`: PyInstaller onedir + onefile, exe sürümü, `SW_SMOKE`, UI matrisi,
   Inno derleme, sessiz kurulum → `--version` → sessiz kaldırma + log artifact.
@@ -197,3 +198,58 @@ Ek araçlar:
 - SignPath/Authenticode, Winget/Scoop deposuna PR dış hesap gerektirir;
   manifestler yalnızca üretilir, yayınlanmaz.
 - UPX/Nuitka denenmedi; onefile açılış maliyeti antivirüs taramasına bağlı.
+
+## Tüm paketler eki (feature/all-packages)
+
+Geri dönüş: `checkpoint/pre-all-packages-2026-11-22` → `f99e523`.
+Dal: `feature/all-packages`. Bu bölüm yukarıdaki sözleşmelere eklenir.
+
+### Yeni config anahtarları
+```json
+{
+  "language": "tr | en",
+  "quiet_enabled": false, "quiet_start": 23, "quiet_end": 8,
+  "focus_mode": false, "focus_symbol": "AAPL",
+  "symbol_groups": {"AAPL": "Teknoloji"},
+  "group_filter": "",
+  "alarms": {"AAPL": {"profit": 20, "loss": 10,
+                      "above": 200, "below": 150, "pct": 5,
+                      "extended": false}}
+}
+```
+`positions` aynı: `qty`, `avg`, opsiyonel `target`, `note`.
+
+### Yeni modül sözleşmeleri
+| Fonksiyon/modül | Sözleşme |
+|---|---|
+| `market_calendar.exchange_profile` | meta+sembol → us/tr/crypto/generic |
+| `market_calendar.tr_phase` | naive datetime İstanbul yerel; None/regular |
+| `market_calendar.tr_holidays` | BIST tam gün kapalı (2024–2030 dini tablo) |
+| `stock_widget._phase_for` | profil → US market_phase / TR / crypto / marketState |
+| `stock_widget._market_active` | herhangi profil açıksa True (pause/refresh) |
+| `stock_widget._market_summary` | (phase, kısa etiket, profil satırları) |
+| `record_history` / `history_series` | günlük para birimi toplamı; aynı gün no-op |
+| `load_series_disk` / `save_series_disk` | TTL'li disk grafik önbelleği |
+| `parse_dividends` / `parse_splits` | aynı chart `events` → tuple listeleri |
+| `redact_config` / `diagnostics_info` | ZIP için gizlenmiş config + özet |
+| `i18n.tr` / `install_tk_translation` | Tk metin çevirisi; varsayılan tr |
+
+### Veri akışına eklenenler
+- `fetch_quote`/`fetch_series` URL'lerinde `events=div%2Csplits`; ek istek yok.
+- `apply_data` sonunda `_record_history`; aynı gün aynı toplam yazılmaz.
+- `_check_alarms` pozisyonu da geçirir; profit/loss eşikleri maliyete göre.
+- `_notify_alarms` önce `alarm-history.json`'a yazar; sessiz saat/susturma
+  yalnızca tepsi+kart uyarısını bastırır, satır işareti kalır.
+- `_render_row` anahtarına pozisyon `(qty, avg)` eklendi; K/Z satırda görünür.
+- `_ordered_symbols`: odak modu → grup filtresi → sıralama sırası.
+- `_row_height` artık `_view_symbols` sayısını kullanır (odak/grup için şart).
+
+### Test/CI/dağıtım
+- 123 unittest + `tools/ui_matrix.py` coverage'a dahil; eşik **40** (ölçülen ~56).
+- `mypy.ini` yalnızca `market_calendar.py`; CI `python -m mypy`.
+- Release: 3 artifact için `actions/attest-build-provenance@v2`.
+- CI: Inno 0.0.1 → 0.0.2 yükseltme, tek kaldırıcı ve sürüm doğrulaması.
+- Tanılama ZIP'i: `sistem.txt`, `config-redacted.json`, log, alarm geçmişi,
+  snapshot. Portföy adet/maliyeti ve alarm eşikleri pakete girmez.
+- TR/EN: yeni görünür metin `i18n._DIRECT`/`_PATTERNS`'e eklenmeli; log/CLI
+  çevrilmez. Dil değişimi menü + tray + ana kartı yeniden kurar.

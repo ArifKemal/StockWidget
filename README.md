@@ -46,29 +46,31 @@ $env:SW_DATA_DIR = "$PWD\veri"
 - **Kart:** fiyat, günlük değişim, şirket adı ve mini grafik. PÖ/PS rozeti
   grafikle aynı fiyatı gösterir; açılışta son fiyatlar önbellekten anında gelir.
 - **Detay paneli:** **1G / 1H / 1A / 1Y**, çizgi/mum, hacim ve sağ fiyat ekseni,
-  fareyle okuma, gün aralığı ve 52 hafta. **Esc** ya da **✕** kapatır.
-- **Portföy:** değer, günlük değişim ve pozisyon K/Z; hedef fiyat, not, maliyet
-  gösterimi, para birimi başına toplam ve **CSV** dışa aktarma.
-- **Alarm ve düzen:** üst/alt fiyat ve günlük değişim alarmı; elle, değişim,
-  sembol veya portföy değerine göre sıralama. Sağ tıkta alarm, taşıma,
-  kopyalama ve Yahoo Finance. **F5** yenile, **↑/↓** seç, **Enter** detay.
+  temettü/bölünme işaretleri, hedef/maliyet çizgileri; **Esc** ya da **✕** kapatır.
+- **Portföy:** değer, günlük değişim ve pozisyon K/Z; hedef fiyat, not, maliyet,
+  para birimi başına toplam, **CSV** ve yerel portföy geçmişi grafiği.
+- **Alarm ve düzen:** fiyat, günlük değişim ve maliyete göre kâr/zarar alarmı;
+  sessiz saat, erteleme, alarm geçmişi; sıralama, gruplar ve odak modu.
+  Sağ tıkta alarm, taşıma, kopyalama ve Yahoo Finance.
+- **Piyasalar:** ABD, BIST ve 7/24 kripto profilleri; BIST tatilleri, ₺ biçimi ve
+  çoklu piyasa durumu. PÖ/PS yalnızca ABD borsalarında gösterilir.
 - **Görünüm ve tepsi:** Gece / Slate / Grafit / Açık, %60–100 opaklık,
-  normal/kompakt, kısa geçişler; tepsi ve otomatik başlatma.
+  normal/kompakt, kısa geçişler; **Türkçe/English**, tepsi ve otomatik başlatma.
 - **Dayanıklılık:** açıkken 15 dk, kapalıyken 60 dk yenileme; 429’da
-  `Retry-After`; NYSE tatilleri ve erken kapanışlar; tek kopya; günde en fazla
-  bir güncelleme denetimi (yalnızca bildirir).
-- **Hız:** değişmeyen satır ve mini grafik yeniden çizilmez; son fiyat önbelleği
-  ve yeniden kullanılan Yahoo bağlantısı sayesinde istek sayısı artmaz.
+  `Retry-After`; tek kopya; günde en fazla bir güncelleme denetimi.
+- **Hız:** değişmeyen satır ve mini grafik yeniden çizilmez; disk grafik önbelleği,
+  son fiyat önbelleği ve yeniden kullanılan Yahoo bağlantısı.
 
 ## Veri kaynağı
 
 `query1.finance.yahoo.com/v8/finance/chart` kullanılır. Resmî olmayan endpoint
 olduğu için istek sayısı bilinçli olarak düşük tutulur:
 
-- Fiyat + gün istatistikleri + 1G grafiği: **tek istek**. Aynı yanıttaki
-  `marketState`, borsa ve saat dilimi de okunur; böylece ABD dışı sembollerde
-  PÖ/PS rozeti yanlışlıkla gösterilmez. Seans/tatil takvimi şimdilik NYSE
-  kurallarına göredir.
+- Fiyat + gün istatistikleri + 1G grafiği + temettü/bölünme: **tek istek**
+  (`events=div,splits`). Aynı yanıttaki `marketState`, borsa ve saat dilimi
+  okunur. ABD, BIST ve kripto profilleri ayrı seans/tatil kuralları kullanır;
+  PÖ/PS yalnızca ABD borsalarında gösterilir. BIST dini bayram tablosu
+  `market_calendar.py` içinde tutulur ve yıllık güncellenir.
 - Seans dışı fiyat (`includePrePost=true`): aynı yanıttaki son 5 dk barından,
   `prev_close`e göre hesaplanır; ayrı istek yok. 1G penceresi `range=1d` yerine
   açık `period1`/`period2` ile istenir — piyasa öncesi saatlerde Yahoo'nun
@@ -85,10 +87,11 @@ likidite nedeniyle normal seanstan sapabilir. Yatırım kararı için kullanmay�
 
 Sağ tık → **Ayarlar…**: görünüm (tema, opaklık, yoğunluk, her zaman üstte,
 konumu sıfırla), veri (yenileme aralıkları, piyasa öncesi/sonrası, kapalıyken
-durdur, elle yenile), davranış (otomatik başlat, ✕ davranışı) ve gelişmiş
-(ayar klasörü). Değişiklikler anında uygulanır; **Sıfırla** yalnızca ayarları
-varsayılana döndürür (semboller, portföy ve otomatik başlatma korunur).
-Pencerenin altından Semboller, Portföy ve Alarmlar pencereleri açılır.
+durdur, elle yenile), davranış (otomatik başlat, ✕ davranışı), dil (Türkçe /
+English) ve gelişmiş (ayar klasörü, tanılama ZIP'i). Değişiklikler anında
+uygulanır; **Sıfırla** yalnızca ayarları varsayılana döndürür (semboller,
+portföy ve otomatik başlatma korunur). Pencerenin altından Semboller, Portföy
+ve Alarmlar pencereleri açılır.
 
 `%APPDATA%\StockWidget\config.json` (portatif modda `SW_DATA_DIR` altında).
 Bozuk alan uygulamayı kilitlemez, varsayılana döner; dosya hiç okunamazsa
@@ -109,13 +112,19 @@ anahtarlar korunur; geçersiz sembol/pozisyon satırları sessizce atılır.
 | `extended_hours` | `true` ise piyasa öncesi/sonrası (**PÖ**/**PS**) verisi gösterilir. |
 | `close_to_tray` | `true` ise **✕** tepsiye gizler; `false` ise çıkar. |
 | `positions` | `{ "AAPL": { "qty": 12, "avg": 185.4, "target": 210, "note": "uzun vade" } }` |
-| `alarms` | `{ "AAPL": { "above": 210, "below": 180, "pct": 5, "extended": false } }` |
+| `alarms` | `{ "AAPL": { "above": 210, "below": 180, "pct": 5, "profit": 20, "loss": 10, "extended": false } }` |
 | `sort_mode` | `manual`, `change`, `symbol` veya `value`. |
 | `portfolio_show_cost` | `true` ise kartta değerin yanında maliyet de görünür. |
+| `language` | `tr` veya `en` (arayüz; log/CLI değişmez). |
+| `quiet_enabled`, `quiet_start`, `quiet_end` | Sessiz saatler (0–23). |
+| `focus_mode`, `focus_symbol` | Tek sembol odak modu. |
+| `symbol_groups`, `group_filter` | `{ "AAPL": "Teknoloji" }` ve menü filtresi. |
 
-Aynı klasörde `snapshot.json` (son fiyatların anlık kopyası) ve `update.json`
-(güncelleme denetiminin 24 saatlik önbelleği) tutulur. İkisi de silinebilir;
-uygulama bir sonraki çalışmasında yeniden oluşturur.
+Aynı klasörde `snapshot.json` (son fiyatlar), `update.json` (güncelleme
+önbelleği), `portfolio-history.json` (günlük portföy toplamları),
+`alarm-history.json` ve `series-cache.json` (grafik önbelleği) tutulur.
+Hepsi silinebilir; uygulama yeniden oluşturur. **Ayarlar → Tanılama paketi**
+portföy adet/maliyetini gizleyen bir destek ZIP'i üretir.
 
 ## Lisans
 

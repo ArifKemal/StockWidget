@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 env:
   PYTHONUTF8: "1"
@@ -116,6 +118,21 @@ jobs:
             --portable-url "$base/StockWidget-$v-portable.zip" --portable-sha256 $portableHash `
             --output-dir packaging-out
           if ($LASTEXITCODE -ne 0) { throw "Manifest üretimi başarısız" }
+
+      - name: Yapı kanıtı — tek dosya exe
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: StockWidget-${{ env.APP_VERSION }}.exe
+
+      - name: Yapı kanıtı — portatif ZIP
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: StockWidget-${{ env.APP_VERSION }}-portable.zip
+
+      - name: Yapı kanıtı — kurulum paketi
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: Output/StockWidget-${{ env.APP_VERSION }}-setup.exe
 
       - name: GitHub Release
         uses: softprops/action-gh-release@v2

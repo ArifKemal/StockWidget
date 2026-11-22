@@ -2,3 +2,4 @@
 coverage>=7.6
 ruff==0.13.3
 pyinstaller==6.22.3
+mypy>=1.10,<2

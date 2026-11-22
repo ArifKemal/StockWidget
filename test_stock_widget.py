@@ -194,6 +194,7 @@ class HelpersTest(unittest.TestCase):
         url = sw.quote_url("AAPL")
         self.assertIn("includePrePost=true", url)
         self.assertIn("period1=", url)
+        self.assertIn("events=div%2Csplits", url)
         self.assertIn("period2=", url)
         self.assertNotIn("includePrePost", sw.quote_url("AAPL", False))
         self.assertIn("/chart/AAPL?", url)
@@ -360,6 +361,16 @@ class RowRenderTest(unittest.TestCase):
                 "ext_change_pct": 7.14}
         info.update(over)
         return info
+
+    def test_row_shows_position_pnl(self):
+        w = self._widget()
+        w.cfg["positions"] = {"AAA": {"qty": 2, "avg": 100}}
+        w._render_row("AAA", self._info(price=150, change_pct=1.0))
+        texts = [it for it in w.canvas.items
+                 if it["kind"] == "text"
+                 and it["opts"].get("text") == "+50.0%"]
+        self.assertTrue(texts)
+        self.assertEqual(texts[-1]["opts"]["fill"], sw.GREEN)
 
     def test_row_badge_cleared_between_refreshes(self):
         w = self._widget()
@@ -837,6 +848,13 @@ class SnapshotTest(unittest.TestCase):
         self.assertEqual(q["currency"], "")
         self.assertIsNone(q["ext_session"])
 
+    def test_event_lists_roundtrip(self):
+        sw.save_snapshot({"AAPL": self._quote(
+            dividends=[[1700000000, 0.25]], splits=[[1700000001, 4, 1]])})
+        q = sw.load_snapshot(["AAPL"])[0]["AAPL"]
+        self.assertEqual(q["dividends"], [(1700000000.0, 0.25)])
+        self.assertEqual(q["splits"], [(1700000001.0, 4.0, 1.0)])
+
     def test_zero_prev_close_rejected(self):
         # Sıfıra bölme değişim yüzdesinde çökme demek
         sw.save_snapshot({"AAPL": self._quote(prev_close=0)})
@@ -1265,6 +1283,343 @@ class RenderCacheTest(unittest.TestCase):
         info["change_pct"] = -9.9
         w._render_row("AAA", info)
         self.assertEqual(len(w.canvas.items), count)
+
+
+class HistoryTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="swhist-")
+        self.path = os.path.join(self.dir, "history.json")
+        self._patch = mock.patch.object(sw, "HISTORY_FILE", self.path)
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_record_and_series(self):
+        entries = sw.record_history([], {"USD": {"value": 100, "cost": 80,
+                                                 "day": 2}},
+                                    datetime.date(2026, 11, 1))
+        entries = sw.record_history(entries, {"USD": {"value": 110,
+                                                       "cost": 80, "day": -1}},
+                                    datetime.date(2026, 11, 2))
+        entries = sw.record_history(entries, {"EUR": {"value": 50}},
+                                    datetime.date(2026, 11, 3))
+        self.assertEqual(len(entries), 3)
+        series = sw.history_series(entries, "USD", 30)
+        self.assertEqual([v for _d, v in series], [100.0, 110.0])
+        self.assertAlmostEqual(sw.history_change(series), 10.0)
+        self.assertIsNone(sw.history_change([("2026-11-01", 100)]))
+
+    def test_same_day_same_totals_is_noop(self):
+        first = sw.record_history([], {"USD": {"value": 100}},
+                                  datetime.date(2026, 11, 1))
+        second = sw.record_history(first, {"USD": {"value": 100}},
+                                   datetime.date(2026, 11, 1))
+        self.assertEqual(first, second)
+        self.assertEqual(first[0]["ts"], second[0]["ts"])
+
+    def test_clean_history_rejects_garbage(self):
+        value = [{"date": "bozuk", "totals": {"USD": {"value": 1}}},
+                 {"date": "2026-11-01", "totals": []},
+                 {"date": "2026-11-02", "totals": {"USD": {"value": "x"}}},
+                 {"date": "2026-11-03",
+                  "totals": {"USD": {"value": "12.5", "cost": "1"}}}]
+        out = sw.clean_history(value)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["totals"]["USD"]["value"], 12.5)
+        self.assertEqual(sw.clean_history("nope"), [])
+
+    def test_save_and_load(self):
+        entries = sw.record_history([], {"USD": {"value": 100}},
+                                    datetime.date(2026, 11, 1))
+        self.assertTrue(sw.save_history(entries))
+        self.assertEqual(sw.load_history(), entries)
+
+
+class AlarmExtraTest(unittest.TestCase):
+    def test_profit_and_loss_thresholds(self):
+        rule = {"profit": 10, "loss": 5}
+        state = {}
+        info = {"price": 120, "prev_close": 100, "change_pct": 20,
+                "currency": "USD"}
+        pos = {"qty": 2, "avg": 100}
+        events = sw.evaluate_alarm("A", info, rule, state, False, pos)
+        self.assertEqual(len(events), 1)
+        self.assertIn("kâr", events[0])
+        self.assertEqual(sw.evaluate_alarm("A", info, rule, state, False, pos),
+                         [])
+        info = {"price": 90, "prev_close": 100, "change_pct": -10,
+                "currency": "USD"}
+        events = sw.evaluate_alarm("A", info, rule, state, False, pos)
+        self.assertEqual(len(events), 1)
+        self.assertIn("zarar", events[0])
+
+    def test_profit_rule_needs_position(self):
+        events = sw.evaluate_alarm(
+            "A", {"price": 120, "change_pct": 1, "currency": "USD"},
+            {"profit": 5}, {}, False, None)
+        self.assertEqual(events, [])
+
+    def test_quiet_time(self):
+        self.assertTrue(sw.is_quiet_time(
+            datetime.datetime(2026, 1, 1, 23, 30), 23, 8))
+        self.assertTrue(sw.is_quiet_time(
+            datetime.datetime(2026, 1, 1, 7, 59), 23, 8))
+        self.assertFalse(sw.is_quiet_time(
+            datetime.datetime(2026, 1, 1, 8, 0), 23, 8))
+        self.assertTrue(sw.is_quiet_time(
+            datetime.datetime(2026, 1, 1, 12, 0), 9, 17))
+        self.assertFalse(sw.is_quiet_time(
+            datetime.datetime(2026, 1, 1, 12, 0), 9, 9))
+
+    def test_alarm_history(self):
+        entries = sw.append_alarm_history([], ["A alarm", "B alarm"], ts=100)
+        entries = sw.append_alarm_history(entries, ["C alarm"], ts=200)
+        self.assertEqual([e["message"] for e in entries],
+                         ["A alarm", "B alarm", "C alarm"])
+        self.assertEqual(sw.clean_alarm_history([{"message": ""}]), [])
+        self.assertEqual(sw.clean_alarm_history("x"), [])
+
+
+class EventParseTest(unittest.TestCase):
+    def test_parse_dividends_and_splits(self):
+        events = {
+            "dividends": {"1700000000": {"amount": "0.25",
+                                         "date": 1700000000}},
+            "splits": {"1700000001": {"numerator": 4, "denominator": 1,
+                                      "date": 1700000001}},
+        }
+        self.assertEqual(sw.parse_dividends(events), [(1700000000, 0.25)])
+        self.assertEqual(sw.parse_splits(events), [(1700000001, 4.0, 1.0)])
+        self.assertEqual(sw.parse_dividends(None), [])
+        self.assertEqual(sw.parse_splits({}), [])
+
+    def test_snapshot_sanitizes_events(self):
+        good = sw._dividend_list([[100, "0.5"], ["x", 1], [101, None]])
+        self.assertEqual(good, [(100.0, 0.5)])
+        splits = sw._split_list([[100, 2, 1], [101, 0, 1], "x"])
+        self.assertEqual(splits, [(100.0, 2.0, 1.0)])
+
+
+class MarketCalendarTest(unittest.TestCase):
+    def test_profiles(self):
+        self.assertEqual(sw.exchange_profile(
+            {"exchange_code": "IST", "timezone": "Europe/Istanbul"},
+            "THYAO.IS"), "tr")
+        self.assertEqual(sw.exchange_profile({}, "GARAN.IS"), "tr")
+        self.assertEqual(sw.exchange_profile({}, "BTC-USD"), "crypto")
+        self.assertEqual(sw.exchange_profile(
+            {"instrument_type": "CRYPTOCURRENCY"}), "crypto")
+        self.assertEqual(sw.exchange_profile({"exchange_code": "NMS"},
+                                             "AAPL"), "us")
+        self.assertEqual(sw.exchange_profile({"exchange_code": "LSE"},
+                                             "VOD.L"), "generic")
+
+    def test_tr_phases(self):
+        # 23 Kasım 2026 Pazartesi, normal seans
+        self.assertEqual(sw.tr_phase(datetime.datetime(2026, 11, 23, 9, 0)),
+                         None)
+        self.assertEqual(sw.tr_phase(datetime.datetime(2026, 11, 23, 11, 0)),
+                         "regular")
+        self.assertEqual(sw.tr_phase(datetime.datetime(2026, 11, 23, 18, 0)),
+                         None)
+        self.assertEqual(sw.tr_phase(datetime.datetime(2026, 11, 21, 11, 0)),
+                         None)   # Cumartesi
+        # Ramazan Bayramı 1. günü kapalı
+        self.assertIsNone(sw.tr_phase(datetime.datetime(2026, 3, 20, 11, 0)))
+        # Arife günü 13:00'ten sonra kapalı
+        self.assertEqual(sw.tr_phase(datetime.datetime(2026, 3, 19, 12, 0)),
+                         "regular")
+        self.assertIsNone(sw.tr_phase(datetime.datetime(2026, 3, 19, 14, 0)))
+
+    def test_tr_holiday_table(self):
+        days = sw.tr_holidays(2026)
+        self.assertIn(datetime.date(2026, 1, 1), days)
+        self.assertIn(datetime.date(2026, 10, 29), days)
+        self.assertEqual(len({d for d in days}), len(days))
+
+    def test_phase_helpers(self):
+        self.assertEqual(sw.market_state_phase("REGULAR"), "regular")
+        self.assertIsNone(sw.market_state_phase("CLOSED"))
+        self.assertEqual(sw.phase_label("regular", "crypto"), "24s")
+        self.assertEqual(sw.phase_label("pre", "us"), "PÖ")
+        self.assertEqual(sw.phase_label(None, "tr"), "kapalı")
+
+    def test_try_money(self):
+        self.assertEqual(sw.fmt_money(1234.5, "TRY"), "₺1,234.50")
+
+
+class MarketAppTest(unittest.TestCase):
+    def test_bist_symbol_is_active_without_data(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.cfg = {"symbols": ["GARAN.IS"], "extended_hours": True}
+        app.last = {}
+        with mock.patch.object(sw, "tr_phase", return_value="regular"):
+            self.assertTrue(app._market_active())
+
+    def test_summary_multiple_markets(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.cfg = {"symbols": ["AAPL", "GARAN.IS", "BTC-USD"],
+                   "extended_hours": True}
+        app.last = {
+            "AAPL": {"exchange_code": "NMS"},
+            "GARAN.IS": {"exchange_code": "IST"},
+            "BTC-USD": {"instrument_type": "CRYPTOCURRENCY"},
+        }
+        app._view_symbols = app.cfg["symbols"]
+        with mock.patch.object(sw, "market_phase", return_value="regular"), \
+                mock.patch.object(sw, "tr_phase", return_value=None):
+            phase, label, details = app._market_summary()
+        self.assertEqual(phase, "regular")
+        self.assertEqual(label, "çoklu")
+        self.assertTrue(any(item.startswith("BIST:") for item in details))
+
+
+class DiagnosticsTest(unittest.TestCase):
+    def test_redaction(self):
+        cfg = {"symbols": ["AAPL"], "positions": {"AAPL": {"qty": 2}},
+               "alarms": {"AAPL": {"above": 200}},
+               "symbol_groups": {"AAPL": "Teknoloji"},
+               "x": 10, "y": 20, "theme": "gece"}
+        safe = sw.redact_config(cfg)
+        for key in ("symbols", "positions", "alarms", "symbol_groups",
+                    "x", "y"):
+            self.assertNotIn(key, safe)
+        self.assertEqual(safe["symbols_count"], 1)
+        self.assertEqual(safe["positions_count"], 1)
+        self.assertEqual(safe["alarms_count"], 1)
+        self.assertEqual(safe["groups_count"], 1)
+        self.assertEqual(safe["theme"], "gece")
+
+    def test_diagnostics_info(self):
+        cfg = {"symbols": ["AAPL"], "positions": {},
+               "alarms": {}, "theme": "gece", "density": "normal"}
+        text = sw.diagnostics_info(
+            cfg, {"AAPL": {"quote_ts": 1000}}, [], now=1600)
+        self.assertIn("StockWidget", text)
+        self.assertIn("sembol: 1", text)
+        self.assertIn("10 dk", text)
+        self.assertIn("pozisyon adet/maliyet", text)
+
+
+class FocusGroupTest(unittest.TestCase):
+    def _app(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.cfg = {
+            "symbols": ["AAPL", "MSFT", "GARAN.IS"],
+            "symbol_groups": {"AAPL": "Teknoloji",
+                              "MSFT": "Teknoloji", "GARAN.IS": "BIST"},
+            "focus_mode": False, "focus_symbol": "",
+            "group_filter": "", "sort_mode": "manual",
+        }
+        app.last = {}
+        return app
+
+    def test_focus_and_group_filter(self):
+        app = self._app()
+        app.cfg["group_filter"] = "Teknoloji"
+        self.assertEqual(app._ordered_symbols(), ["AAPL", "MSFT"])
+        app.cfg["focus_mode"] = True
+        app.cfg["focus_symbol"] = "GARAN.IS"
+        self.assertEqual(app._ordered_symbols(), ["GARAN.IS"])
+        app.cfg["focus_mode"] = False
+        app.cfg["group_filter"] = ""
+        self.assertEqual(app._ordered_symbols(),
+                         ["AAPL", "MSFT", "GARAN.IS"])
+
+    def test_unknown_group_falls_back_to_all(self):
+        app = self._app()
+        app.cfg["group_filter"] = "Yok"
+        self.assertEqual(len(app._ordered_symbols()), 3)
+
+
+class ConfigExtraTest(unittest.TestCase):
+    def test_new_settings_are_sanitized(self):
+        with tempfile.TemporaryDirectory(prefix="swcfg2-") as d:
+            old = sw.CONFIG_FILE
+            sw.CONFIG_FILE = os.path.join(d, "config.json")
+            sw._CONFIG_FROM_BACKUP = False
+            try:
+                with open(sw.CONFIG_FILE, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "symbols": ["AAPL", "GARAN.IS"],
+                        "quiet_enabled": "evet",
+                        "quiet_start": 99,
+                        "quiet_end": -3,
+                        "focus_mode": "belki",
+                        "focus_symbol": "yok",
+                        "symbol_groups": {"AAPL": "  Teknoloji ",
+                                          "BAD": "x", "GARAN.IS": 5},
+                        "group_filter": 7,
+                        "language": "de",
+                    }, f)
+                cfg = sw.load_config()
+                self.assertTrue(cfg["quiet_enabled"])
+                self.assertEqual(cfg["quiet_start"], 23)
+                self.assertEqual(cfg["quiet_end"], 0)
+                self.assertFalse(cfg["focus_mode"])
+                self.assertEqual(cfg["focus_symbol"], "")
+                self.assertEqual(cfg["symbol_groups"],
+                                 {"AAPL": "Teknoloji"})
+                self.assertEqual(cfg["group_filter"], "")
+                self.assertEqual(cfg["language"], "tr")
+            finally:
+                sw.CONFIG_FILE = old
+                sw._CONFIG_FROM_BACKUP = False
+
+
+class I18nTest(unittest.TestCase):
+    def tearDown(self):
+        sw.i18n.set_language("tr")
+
+    def test_direct_and_pattern_translation(self):
+        sw.i18n.set_language("en")
+        self.assertEqual(sw.T("Yenile"), "Refresh")
+        self.assertEqual(sw.T("PÖ"), "PRE")
+        self.assertEqual(sw.T("son güncelleme 12 dk önce"),
+                         "last update 12 min ago")
+        self.assertEqual(sw.T("AAPL · Alarm kur…"), "AAPL · Set alarm…")
+        self.assertEqual(sw.T("Yeni sürüm: 2.0.1"), "New version: 2.0.1")
+        sw.i18n.set_language("tr")
+        self.assertEqual(sw.T("Yenile"), "Yenile")
+
+    def test_unknown_text_passes_through(self):
+        sw.i18n.set_language("en")
+        self.assertEqual(sw.T("AAPL"), "AAPL")
+        self.assertEqual(sw.T(None), None)
+
+
+class SeriesDiskCacheTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="swseries-")
+        self.path = os.path.join(self.dir, "series.json")
+        self._patch = mock.patch.object(sw, "SERIES_CACHE_FILE", self.path)
+        self._patch.start()
+        sw._SERIES_CACHE.clear()
+        sw._SERIES_DISK_LOADED = False
+
+    def tearDown(self):
+        self._patch.stop()
+        sw._SERIES_CACHE.clear()
+        sw._SERIES_DISK_LOADED = False
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_second_process_uses_disk(self):
+        stamps = [1700000000, 1700000060]
+        payload = _chart_payload([1.0, 2.0], stamps, 2.0, 1.0)
+        with mock.patch.object(sw, "_http_get",
+                               return_value=_Resp(payload)) as http:
+            data = sw.fetch_series("TEST", "1A")
+        self.assertEqual(http.call_count, 1)
+        self.assertTrue(os.path.exists(self.path))
+        self.assertEqual(data["closes"], [1.0, 2.0])
+        sw._SERIES_CACHE.clear()
+        sw._SERIES_DISK_LOADED = False
+        with mock.patch.object(sw, "_http_get",
+                               side_effect=AssertionError("ağa çıkmamalı")):
+            again = sw.fetch_series("TEST", "1A")
+        self.assertEqual(again["closes"], [1.0, 2.0])
 
 
 if __name__ == "__main__":
