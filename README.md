@@ -93,6 +93,10 @@ uygulanır; **Sıfırla** yalnızca ayarları varsayılana döndürür (sembolle
 portföy ve otomatik başlatma korunur). Pencerenin altından Semboller, Portföy
 ve Alarmlar pencereleri açılır.
 
+<p align="center">
+  <img src="docs/ekran-ayarlar.png" width="430" alt="StockWidget Ayarlar penceresi — tema, veri, davranış ve dil">
+</p>
+
 `%APPDATA%\StockWidget\config.json` (portatif modda `SW_DATA_DIR` altında).
 Bozuk alan uygulamayı kilitlemez, varsayılana döner; dosya hiç okunamazsa
 `config.json.bak` yedeğinden kurtarılır. Yazma atomiktir (geçici dosya + yer
