@@ -185,9 +185,9 @@ Ek araçlar:
   Inno derleme, sessiz kurulum → `--version` → sessiz kaldırma + log artifact.
 - `release`: testler, iki derleme, portatif ZIP, SHA256SUMS, CycloneDX
   `sbom.json`, Winget/Scoop manifestleri, GitHub Release asset'leri.
-- `ci.yml` yalnızca `main` push ve PR'da çalışır. Eski `feature/free-pack`
-  dalı `main`e birleştirildikten sonra silindi; bu not geçmiş kaydıdır.
-  Yeni değişikliklerde merge/PR öncesi yerel doğrulama zorunludur.
+- `ci.yml` `main` + `feature/**` push'larında ve PR'larda çalışır. Eski
+  `feature/free-pack` dalı `main`e birleştirildikten sonra silindi; bu not
+  geçmiş kaydıdır. Merge öncesi yerel doğrulama yine zorunludur.
 
 ## Bilinçli sınırlar / açık uçlar
 
