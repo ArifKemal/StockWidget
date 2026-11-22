@@ -1,7 +1,7 @@
 # StockWidget — Ajan Kalıcı Hafızası
 
 Bu dosya oturumlar arasında unutulmaması gerekenleri tutar. Proje sözleşmesi
-`AGENT-FEATURES.md`, genel mimari `AGENT.md`, kullanıcı dokümanı `README.md`'dir.
+`docs/agent/AGENT-FEATURES.md`, genel mimari `AGENT.md`, kullanıcı dokümanı `README.md`'dir.
 Çelişki olursa sıra: kullanıcının son talebi → bu dosya → AGENT-FEATURES → AGENT.
 
 ## Kullanıcı tercihleri / değişmezler
@@ -21,8 +21,9 @@ Bu dosya oturumlar arasında unutulmaması gerekenleri tutar. Proje sözleşmesi
   Özellikler bölümü kısa (8 madde civarı) tutulacak.
 - Her değişiklikte yeni sürüm/tag/release **yok**; commit birikir. Sürüm şu an
   **1.1.0**. Release yalnızca kullanıcı isterse/etiketle.
-- Büyük turdan önce **checkpoint tag + ayrı dal**; kullanıcı beğenmezse geri
-  alınabilir olmalı. `main` kullanıcı onayı olmadan değiştirilmez.
+- Büyük turdan önce **checkpoint tag**; kullanıcı beğenmezse geri alınabilir
+  olmalı. Tek dal düzeni korunur; gerekiyorsa geçici dal açılıp iş sonunda
+  silinir. `main` kullanıcı onayı olmadan değiştirilmez.
 - Kısayollar **sürümden bağımsız kurulu yolu** göstermeli:
   `%LOCALAPPDATA%\Programs\StockWidget\StockWidget.exe` (`--toggle`).
   Sürümlü exe yoluna veya `dist/` içine bağlanmamalı.
@@ -34,10 +35,11 @@ Bu dosya oturumlar arasında unutulmaması gerekenleri tutar. Proje sözleşmesi
 ## Mevcut durum (2026-11-22)
 
 - Tek dal: **main**; kod birleşmesi `0c983b6` (tüm paketler + düzeltmeler
-  fast-forward), üzerine doküman commit'leri gelebilir. `feature/all-packages`
-  yerel ve uzakta silindi.
+  fast-forward), üzerine doküman/düzen commit'leri gelebilir. Tüm eski
+  feature dalları yerel ve uzakta silindi.
 - `main` önceki hali: `f99e523` (checkpoint).
 - Checkpoint'ler:
+  - `checkpoint/pre-reorg-2026-11-22` → 0c07b84 (klasör düzeni öncesi)
   - `checkpoint/pre-all-packages-2026-11-22` → f99e523
   - `checkpoint/pre-free-pack-2026-11-20` → b91eb95
 - Son doğrulanan CI:
@@ -54,12 +56,24 @@ Bu dosya oturumlar arasında unutulmaması gerekenleri tutar. Proje sözleşmesi
 - Kullanıcının sembolleri: **ONDS, BRUN**; tema **grafit**, opaklık **0.95**,
   konum x=1474 y=441. Bunlar gerçek config'de; testlerde kullanılmamalı.
 
+## Klasör düzeni (2026-11-22'den itibaren)
+
+- Kök: `stock_widget.py`, `market_calendar.py`, `i18n.py`, `README.md`,
+  `LICENSE`, `AGENT.md`, `mypy.ini`, `requirements*.txt`.
+- `tests/` — unittest dosyası (`tests/test_stock_widget.py`).
+- `assets/stock.ico` — kaynak ve PyInstaller ikonu.
+- `packaging/` — `.spec`, `installer.iss`, `version_info.txt`, Winget/Scoop.
+- `docs/agent/` — ajan haritası ve bu hafıza dosyası.
+- `tools/legacy/` — eski kaynak modu kısayol/otostart betikleri.
+- Komutlar kök dizinden çalışır; taşıma sonrası `python -m unittest discover
+  -s tests -t .`, PyInstaller `packaging/...spec`, Inno `packaging\installer.iss`.
+
 ## Doğrulama komutları
 
 ```powershell
 cd "C:\Users\Arif Kemal\Desktop\StockWidget"
 python -m py_compile stock_widget.py market_calendar.py i18n.py
-python -m unittest test_stock_widget.py          # 125 test
+python -m unittest discover -s tests -t .          # 125 test
 python -m ruff check . --exclude .git,dist,dist-onefile,build,Output
 python -m mypy                                    # market_calendar.py
 python tools\ui_matrix.py                         # 5 ölçek × 4 tema × 2 yoğunluk
@@ -70,7 +84,7 @@ Coverage (unit + UI matrisi): **%56**, CI eşiği **%40**:
 
 ```powershell
 python -m coverage erase
-python -m coverage run -m unittest test_stock_widget.py
+python -m coverage run -m unittest discover -s tests -t .
 python -m coverage run --append tools\ui_matrix.py
 python -m coverage report --include="stock_widget.py"
 ```
@@ -119,9 +133,9 @@ python -m coverage report --include="stock_widget.py"
 ## Geri alma / merge
 
 ```powershell
-# çalışma ağacı temizken checkpoint'e dön
-git switch -c geri-al checkpoint/pre-all-packages-2026-11-22
+# çalışma ağacı temizken klasör düzeni öncesine dön
+git switch -c geri-al checkpoint/pre-reorg-2026-11-22
 # veya mevcut main'i checkpoint'e çekmek için (force):
 git switch main
-git reset --hard checkpoint/pre-all-packages-2026-11-22
+git reset --hard checkpoint/pre-reorg-2026-11-22
 ```

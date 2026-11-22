@@ -34,7 +34,7 @@ def main():
     with io.open(app_path, "w", encoding="utf-8", newline="") as f:
         f.write(src)
 
-    vi_path = os.path.join(ROOT, "version_info.txt")
+    vi_path = os.path.join(ROOT, "packaging", "version_info.txt")
     with io.open(vi_path, encoding="utf-8", newline="") as f:
         vi = f.read()
     vi = re.sub(r"filevers=\([^)]*\)", "filevers=%s" % tuple_s, vi)
@@ -48,7 +48,7 @@ def main():
 
     # Kurulum betiğinin varsayılan sürümü (ISCC /D vermezse bu kullanılır).
     # UTF-8 BOM korunmalı; yoksa Inno Türkçe karakterleri yanlış okur.
-    iss_path = os.path.join(ROOT, "installer.iss")
+    iss_path = os.path.join(ROOT, "packaging", "installer.iss")
     if os.path.exists(iss_path):
         with io.open(iss_path, encoding="utf-8-sig", newline="") as f:
             iss = f.read()
@@ -60,7 +60,7 @@ def main():
                          newline="") as f:
                 f.write(iss)
         else:
-            print("warning: MyAppVersion line not found in installer.iss")
+            print("warning: MyAppVersion line not found in packaging/installer.iss")
 
     print("version %s written" % version)
     return 0

@@ -66,7 +66,7 @@ VERSION_RE = re.compile(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?")
 ASSET_DIR = (getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
              if FROZEN else os.path.dirname(os.path.abspath(__file__)))
 BASE_DIR = ASSET_DIR
-ICON_FILE = os.path.join(ASSET_DIR, "stock.ico")
+ICON_FILE = os.path.join(ASSET_DIR, "assets", "stock.ico")
 
 
 def _data_dir():

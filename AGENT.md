@@ -8,20 +8,20 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `stock_widget.py` — uygulamanın tamamı (UI, veri çevrimi, tray, kısayol, portföy, ayarlar, otomatik başlatma)
 - `README.md` — kullanıcı dokümanı (indirme, hızlı başlangıç, özellikler, veri kaynağı, ayarlar)
 - `AGENT.md` — bu dosya: mimari kurallar + değişiklik günlüğü
-- `AGENT-FEATURES.md` — ücretsiz paket turunun ajan analiz haritası (config
+- `docs/agent/AGENT-FEATURES.md` — ücretsiz paket turunun ajan analiz haritası (config
   şeması, fonksiyon sözleşmeleri, veri akışı, test kancaları, geri alma)
-- `AGENT-MEMORY.md` — oturumlar arası kalıcı notlar: kullanıcı tercihleri,
+- `docs/agent/AGENT-MEMORY.md` — oturumlar arası kalıcı notlar: kullanıcı tercihleri,
   mevcut dal/kurulum durumu, regresyon tuzakları, yapılmayacaklar
-- `test_stock_widget.py` — stdlib `unittest` birim testleri (ağa çıkmaz)
+- `tests/test_stock_widget.py` — stdlib `unittest` birim testleri (ağa çıkmaz)
 - `market_calendar.py` — ABD/BIST/kripto profilleri, TR tatilleri (tipli modül)
 - `i18n.py` — TR/EN arayüz çevirisi; Tk metinlerini tek noktadan çevirir
 - `mypy.ini` — kademeli tip kontrolü (önce `market_calendar.py`)
 - `LICENSE` — MIT (2026 Arif Kemal)
-- `StockWidget-onefile.spec` — PyInstaller **onefile** derleme tanımı (ana indirme)
-- `StockWidget.spec` — PyInstaller onedir derleme tanımı (ZIP yedeği)
-- `installer.iss` — Inno Setup 6 kullanıcı bazlı kurulum betiği (isteğe bağlı)
-- `version_info.txt` — exe sürüm bilgisi (PyInstaller)
-- `tools/bump_version.py` — sürümü kaynak + version_info + installer.iss'e yazar
+- `packaging/StockWidget-onefile.spec` — PyInstaller **onefile** derleme tanımı (ana indirme)
+- `packaging/StockWidget.spec` — PyInstaller onedir derleme tanımı (ZIP yedeği)
+- `packaging/installer.iss` — Inno Setup 6 kullanıcı bazlı kurulum betiği (isteğe bağlı)
+- `packaging/version_info.txt` — exe sürüm bilgisi (PyInstaller)
+- `tools/bump_version.py` — sürümü kaynak + `packaging/version_info.txt` + `packaging/installer.iss`'e yazar
 - `tools/screenshot.py` — README görsellerini gerçek uygulamadan üretir
   (sabit sahte veri, ağsız, 2x; widget topmost, backdrop onun altında;
   kısayol thread'i "registered" ile değiştirilir; boş yakalarsa mevcut
@@ -32,11 +32,11 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `.github/dependabot.yml` — pip ve GitHub Actions güncellemesi; şu an
   `open-pull-requests-limit: 0` ile kapalı (depo tek dallı kalsın diye)
 - `.github/workflows/ci.yml` / `release.yml` — test+derleme / etiketli sürüm
-- `toggle.vbs` — kaynak modunda masaüstü kısayolu (kurulu sürümde `StockWidget.exe --toggle`)
-- `install_startup.ps1` / `uninstall_startup.ps1` — eski kaynak modu otostart betikleri
+- `tools/legacy/toggle.vbs` — kaynak modunda masaüstü kısayolu (kurulu sürümde `StockWidget.exe --toggle`)
+- `tools/legacy/install_startup.ps1` / `tools/legacy/uninstall_startup.ps1` — eski kaynak modu otostart betikleri
 - `requirements.txt` — requests, pystray, pillow (pystray/pillow opsiyonel)
-- `docs/ekran-ana.png`, `docs/ekran-detay.png` — README ekran görüntüleri
-  (`tools/screenshot.py` üretir; veri sahte, ağ yok)
+- `docs/ekran-ana.png`, `docs/ekran-detay.png`, `docs/ekran-ayarlar.png` —
+  README ekran görüntüleri (`tools/screenshot.py` üretir; veri sahte, ağ yok)
 - `docs/imzalama.md` — kod imzalama (SmartScreen / SignPath) durumu ve adımları
 - `config.json` / `sw.log` / `snapshot.json` / `update.json` — kaynak modunda çalışma zamanı dosyaları, `.gitignore`'da
 - `%APPDATA%\StockWidget\` — kurulu/portatif sürümde ayar + log + son fiyatlar (SW_DATA_DIR ile değiştirilebilir)
@@ -158,7 +158,7 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
    - `acquire_single_instance` `CreateMutexW.restype` düzeltildi (64-bit HANDLE kırpılması).
 6. **NYSE tatil günleri** — `market_holidays()` + yardımcılar (`_nth_weekday`, `_last_weekday`,
    `_easter`, `_observed`); `market_open()` tatil günlerini kapalı sayar.
-7. **toggle.vbs** — `taskkill /F` davranışı açıklandı (WM_CLOSE gizler, sonlandırmaz).
+7. **tools/legacy/toggle.vbs** — `taskkill /F` davranışı açıklandı (WM_CLOSE gizler, sonlandırmaz).
 8. **Grafik zaman aralıkları** — detay paneline `1G / 1H / 1A / 1Y` sekmeleri
    (`TF_TABS`, `TF_LABEL`). 1G döngü verisinden; 1H/1A/1Y `fetch_series()` ile tembel
    çekilir (modül düzeyi `_SERIES_CACHE`, `TF_TTL`). Sonuç `_res` kuyruğu →
@@ -201,7 +201,7 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
     `DetailPanel.mode`).
 14. **Altyapı** — `setup_logging()` → döndürülen `sw.log` (RotatingFileHandler, 200 KB×2);
     `poll_queue` hataları `log.exception`, fetch hataları `log.warning`.
-    `test_stock_widget.py` stdlib `unittest` (tatiller, fmt, palet, config, render,
+    `tests/test_stock_widget.py` stdlib `unittest` (tatiller, fmt, palet, config, render,
     downsample); `.gitignore` + git deposu.
 15. **Doküman tazeleme** — README baştan yazıldı: portföy, tema/opaklık/yoğunluk,
     mum/çizgi + hacim, hover okuması, tray/kısayol davranışı, `config.json` anahtar
@@ -219,10 +219,10 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       İkinci kopya sinyal gönderip çıkar; `--quit` mutex'ten önce işlenir.
     - `poll_queue` "quit" olayını işler ve destroy sonrası `root.after` planlamaz.
       Tepsi başlatma hatası uygulamayı düşürmez (`_tray_run` loglar).
-    - Paketleme: `StockWidget.spec` (PyInstaller onedir, `--noconsole`, ikon, sürüm),
-      `installer.iss` (Inno Setup 6, kullanıcı bazlı `%LOCALAPPDATA%\Programs\StockWidget`,
+    - Paketleme: `packaging/StockWidget.spec` (PyInstaller onedir, `--noconsole`, ikon, sürüm),
+      `packaging/installer.iss` (Inno Setup 6, kullanıcı bazlı `%LOCALAPPDATA%\Programs\StockWidget`,
       kısayollar, isteğe bağlı otostart, yükseltmede `--quit`, kaldırmada ayarları korur),
-      `version_info.txt`, `tools/bump_version.py`.
+      `packaging/version_info.txt`, `tools/bump_version.py`.
     - CI/release: `.github/workflows/ci.yml` her push'ta test + PyInstaller;
       `release.yml` `v*` etiketinde portatif ZIP + kurulum paketini Release'e ekler.
     - `LICENSE` (MIT), README indirme-önce yeniden yazıldı, `docs/` ekran görüntüleri
@@ -248,7 +248,7 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
       klasöre alınınca kurulum dosyaları kopyaladı; ancak setup sürecine
       Başlat menüsü klasörü, kısayol (`IPersistFile::Save`) ve HKCU yazımı
       politika ile engellendi (`Error 5`). Yani sorun betikte değil, ortamda.
-    - `installer.iss`: `PrepareToInstall` artık `{app}` ve HKCU yazılabilirliğini
+    - `packaging/installer.iss`: `PrepareToInstall` artık `{app}` ve HKCU yazılabilirliğini
       deniyor; engellenmişse ham hata yerine Türkçe mesaj + portatif ZIP önerisi
       verip temiz çıkıyor (oluşturduğu boş klasörü siliyor). `[Icons]` girdileri
       `CanCreateShortcuts` / `CanCreateDesktopIcon` ile korunuyor: kısayol
@@ -266,7 +266,7 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
     - Ürün küçük bir widget olduğu için kurulum paketi ana indirme olmaktan
       çıkarıldı. Yeni sıralama: `StockWidget-<sürüm>.exe` (onefile, ana),
       `StockWidget-<sürüm>-setup.exe` (isteğe bağlı), `-portable.zip` (yedek).
-    - `StockWidget-onefile.spec` eklendi (`EXE(...)` içine `a.binaries` /
+    - `packaging/StockWidget-onefile.spec` eklendi (`EXE(...)` içine `a.binaries` /
       `a.datas`, `COLLECT` yok, `runtime_tmpdir=None`, `console=False`). Yerel
       derleme ~26 MB; `--version`, `--paths`, `--toggle`, `--quit` uçtan uca
       denendi. Onefile her açılışta `%TEMP%`'e açıldığı için ilk pencere birkaç
@@ -274,7 +274,7 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
     - `ci.yml`: onedir + onefile derlemesi ve iki exe için `--version` duman
       testi. `release.yml`: onefile derleme, `StockWidget-$V.exe` üretimi +
       sürüm doğrulaması, 3 asset yükleme.
-    - `tools/bump_version.py` artık `installer.iss` içindeki `MyAppVersion`
+    - `tools/bump_version.py` artık `packaging/installer.iss` içindeki `MyAppVersion`
       varsayılanını da günceller (UTF-8 BOM korunarak; BOM yoksa Inno Türkçe
       karakterleri bozar).
     - Not: onefile testinde "ikinci kopya" hatası görüldü; nedeni uygulama
@@ -448,7 +448,7 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 ```bat
 cd "C:\Users\<kullanıcı>\Desktop\StockWidget"
 python -m py_compile stock_widget.py
-python -m unittest test_stock_widget.py
+python -m unittest discover -s tests -t .
 python tools\ui_matrix.py                  :: tema x yoğunluk x DPI (ağsız, traysiz)
 set SW_SMOKE=1 && python stock_widget.py   :: 12 sn sonra kendini kapatır (duman testi)
 python stock_widget.py --version
@@ -456,20 +456,20 @@ python stock_widget.py --toggle            :: çalışan kopyayı göster/gizle
 python stock_widget.py --quit              :: temiz çıkış
 
 :: paketleme (yerel)
-python -m PyInstaller --noconfirm --clean --distpath dist-onefile StockWidget-onefile.spec
+python -m PyInstaller --noconfirm --clean --distpath dist-onefile packaging/StockWidget-onefile.spec
 dist-onefile\StockWidget.exe --version
 dist-onefile\StockWidget.exe --paths
 
 :: donmus duman (tek dosya; %TEMP% altina acilir, ayarlari kirletmez)
-python -m PyInstaller --noconfirm --clean --distpath build\test-snap --workpath build\work-snap StockWidget-onefile.spec
+python -m PyInstaller --noconfirm --clean --distpath build\test-snap --workpath build\work-snap packaging/StockWidget-onefile.spec
 python tools\smoke_frozen.py   :: A: SW_SMOKE+snapshot+_MEI temizligi, B: --quit, C: ikinci kopya
 
-python -m PyInstaller --noconfirm --clean StockWidget.spec
+python -m PyInstaller --noconfirm --clean packaging/StockWidget.spec
 dist\StockWidget\StockWidget.exe --version
 dist\StockWidget\StockWidget.exe --paths
 
 :: kurulum paketi (Inno Setup 6 kuruluysa)
-& "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer.iss
+& "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" packaging/installer.iss
 ```
 
 Onefile exe `%TEMP%`'e açıldığı için kısıtlı makinelerde test ederken
@@ -560,7 +560,7 @@ Geri dönüş noktası: `checkpoint/pre-free-pack-2026-11-20` (b91eb95).
 Yeni özellikler `feature/free-pack` üzerinde geliştirildi ve 2026-11-20'de
 `main`e fast-forward birleştirildi; dal silindi. Geri dönüş etiketi duruyor.
 
-> Ayrıntılı, ajanlar için sözleşme düzeyi harita: **`AGENT-FEATURES.md`**
+> Ayrıntılı, ajanlar için sözleşme düzeyi harita: **`docs/agent/AGENT-FEATURES.md`**
 > (config şeması, fonksiyon girdi/çıktıları, `apply_data` sırası, render
 > anahtarı, menü/kısayol kuralları, test kancaları, CI/release, geri alma).
 

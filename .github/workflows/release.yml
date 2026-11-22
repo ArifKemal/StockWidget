@@ -42,13 +42,13 @@ jobs:
       - name: Testler
         run: |
           python -m py_compile stock_widget.py
-          python -m unittest test_stock_widget.py
+          python -m unittest discover -s tests -t .
 
       - name: Portatif derleme (onedir, ZIP için)
-        run: python -m PyInstaller --noconfirm --clean StockWidget.spec
+        run: python -m PyInstaller --noconfirm --clean packaging/StockWidget.spec
 
       - name: Tek dosya derleme (onefile, ana indirme)
-        run: python -m PyInstaller --noconfirm --clean --distpath dist-onefile StockWidget-onefile.spec
+        run: python -m PyInstaller --noconfirm --clean --distpath dist-onefile packaging/StockWidget-onefile.spec
 
       - name: Tek dosya exe'yi adlandır ve doğrula
         shell: pwsh
@@ -86,7 +86,7 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (!(Test-Path $iscc)) { $iscc = "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" }
           if (!(Test-Path $iscc)) { throw "ISCC.exe bulunamadı" }
-          & $iscc "/DMyAppVersion=$env:APP_VERSION" installer.iss
+          & $iscc "/DMyAppVersion=$env:APP_VERSION" packaging\installer.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup derlemesi başarısız" }
 
       - name: SHA256 özetleri

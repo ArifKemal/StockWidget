@@ -1,5 +1,5 @@
 ﻿; StockWidget - Inno Setup 6 betiği
-; Derleme: ISCC.exe installer.iss  (veya /DMyAppVersion=1.2.3)
+; Derleme (kök dizinden): ISCC.exe packaging\installer.iss  (veya /DMyAppVersion=1.2.3)
 ; Çıktı:   Output\StockWidget-<sürüm>-setup.exe
 ;
 ; Kurulum kullanıcı bazlıdır (yönetici gerekmez):
@@ -34,9 +34,9 @@ RestartApplications=no
 SetupLogging=yes
 UsePreviousAppDir=yes
 MinVersion=10.0
-OutputDir=Output
+OutputDir=..\Output
 OutputBaseFilename={#MyAppName}-{#MyAppVersion}-setup
-SetupIconFile=stock.ico
+SetupIconFile=..\assets\stock.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/max
 SolidCompression=yes
@@ -58,7 +58,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "autostart"; Description: "Windows açılışında StockWidget'i başlat"; GroupDescription: "Başlangıç:"
 
 [Files]
-Source: "dist\{#MyAppName}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\{#MyAppName}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--toggle"; Check: CanCreateShortcuts

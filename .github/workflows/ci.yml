@@ -42,7 +42,7 @@ jobs:
       - name: Sözdizimi ve testler
         run: |
           python -m py_compile stock_widget.py
-          python -m coverage run -m unittest test_stock_widget.py
+          python -m coverage run -m unittest discover -s tests -t .
           python -m coverage run --append tools/ui_matrix.py
           python -m coverage report --include="stock_widget.py" --fail-under=40
           python stock_widget.py --version
@@ -85,8 +85,8 @@ jobs:
 
       - name: Paketleme (PyInstaller)
         run: |
-          python -m PyInstaller --noconfirm --clean StockWidget.spec
-          python -m PyInstaller --noconfirm --clean --distpath dist-onefile StockWidget-onefile.spec
+          python -m PyInstaller --noconfirm --clean packaging/StockWidget.spec
+          python -m PyInstaller --noconfirm --clean --distpath dist-onefile packaging/StockWidget-onefile.spec
 
       - name: Exe sürüm dumanı
         shell: pwsh
@@ -135,7 +135,7 @@ jobs:
           if (!(Test-Path $iscc)) { throw "ISCC.exe bulunamadı" }
           # 0.0.1 -> 0.0.2 yükseltme yolunu test etmek için iki paket üret.
           foreach ($v in @("0.0.1", "0.0.2")) {
-            & $iscc "/DMyAppVersion=$v" installer.iss
+            & $iscc "/DMyAppVersion=$v" packaging\installer.iss
             if ($LASTEXITCODE -ne 0) {
               throw "Inno Setup derlemesi başarısız: $v"
             }
@@ -151,7 +151,7 @@ jobs:
             if (!(Test-Path $pkg)) { throw "Kurulum paketi yok: $pkg" }
           }
 
-          # installer.iss: DefaultDirName={localappdata}\Programs\StockWidget
+          # packaging/installer.iss: DefaultDirName={localappdata}\Programs\StockWidget
           $installDir = Join-Path $env:LOCALAPPDATA "Programs\StockWidget"
           $installedExe = Join-Path $installDir "StockWidget.exe"
           # Kurulan exe'nin sürümü, derlenen onedir exe ile aynı olmalı.

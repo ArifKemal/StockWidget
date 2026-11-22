@@ -764,11 +764,14 @@ class FetchLoopTest(unittest.TestCase):
 class VersionSyncTest(unittest.TestCase):
     def test_version_files_match(self):
         root = os.path.dirname(os.path.abspath(sw.__file__))
-        with open(os.path.join(root, "version_info.txt"), encoding="utf-8") as f:
+        packaging = os.path.join(root, "packaging")
+        with open(os.path.join(packaging, "version_info.txt"),
+                  encoding="utf-8") as f:
             text = f.read()
         self.assertIn("filevers=(%s)" % ", ".join(
             (sw.APP_VERSION.split(".") + ["0", "0", "0"])[:4]), text)
-        with open(os.path.join(root, "installer.iss"), encoding="utf-8") as f:
+        with open(os.path.join(packaging, "installer.iss"),
+                  encoding="utf-8") as f:
             iss = f.read()
         self.assertIn('#define MyAppVersion "%s"' % sw.APP_VERSION, iss)
 

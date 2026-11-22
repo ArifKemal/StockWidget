@@ -5,7 +5,7 @@ Dim fso, sh, svc, procs, p, found, scriptPath
 
 Set fso = CreateObject("Scripting.FileSystemObject")
 Set sh = CreateObject("WScript.Shell")
-scriptPath = fso.GetParentFolderName(WScript.ScriptFullName) & "\stock_widget.py"
+scriptPath = fso.GetParentFolderName(fso.GetParentFolderName(WScript.ScriptFullName)) & "\stock_widget.py"
 
 If Not fso.FileExists(scriptPath) Then
     MsgBox "stock_widget.py bulunamadi:" & vbCrLf & scriptPath, 16, "BorsaWidget"

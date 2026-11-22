@@ -12,7 +12,7 @@ Senaryolar:
 
 Kullanim:
   python -m PyInstaller --noconfirm --clean --distpath build\\test-snap ^
-      --workpath build\\work-snap StockWidget-onefile.spec
+      --workpath build\\work-snap packaging/StockWidget-onefile.spec
   python tools/smoke_frozen.py                     # varsayilan exe yolu
   python tools/smoke_frozen.py --exe <yol>         # baska derleme
 

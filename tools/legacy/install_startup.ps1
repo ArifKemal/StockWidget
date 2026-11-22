@@ -1,4 +1,4 @@
-$dir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$dir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $app = Join-Path $dir "stock_widget.py"
 $py = (Get-Command python).Source
 $pyw = Join-Path (Split-Path $py) "pythonw.exe"

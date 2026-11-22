@@ -1,19 +1,22 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller derleme tanımı: TEK DOSYA (onefile) çıktısı.
 # Ana indirme budur: StockWidget.exe — indir, çift tıkla, kurulum yok.
-# Kullanım: python -m PyInstaller --noconfirm --clean --distpath dist-onefile StockWidget-onefile.spec
+# Kullanım (kök dizinden):
+#   python -m PyInstaller --noconfirm --clean --distpath dist-onefile packaging/StockWidget-onefile.spec
 import os
 
+ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 block_cipher = None
 
-datas = [("stock.ico", ".")]
+datas = [(os.path.join(ROOT, "assets", "stock.ico"), "assets")]
 for extra in ("LICENSE", "README.md"):
-    if os.path.exists(extra):
-        datas.append((extra, "."))
+    path = os.path.join(ROOT, extra)
+    if os.path.exists(path):
+        datas.append((path, "."))
 
 a = Analysis(
-    ["stock_widget.py"],
-    pathex=[],
+    [os.path.join(ROOT, "stock_widget.py")],
+    pathex=[ROOT],
     binaries=[],
     datas=datas,
     hiddenimports=["pystray._win32", "PIL._tkinter_finder"],
@@ -46,6 +49,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon="stock.ico",
-    version="version_info.txt",
+    icon=os.path.join(ROOT, "assets", "stock.ico"),
+    version=os.path.join(SPECPATH, "version_info.txt"),
 )
