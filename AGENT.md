@@ -673,7 +673,7 @@ silindi; tek dal `main`.
 9. **Kalite/dağıtım.** CI: mypy (kademeli), coverage ≥40 (ölçülen ~56;
    unittest + UI matrisi),
    Inno 0.0.1→0.0.2 yükseltme testi, Sigstore `attest-build-provenance`
-   (3 artifact). Testler 130; UI matrisi coverage'a dahil (~56%);
+   (3 artifact). Testler 132; UI matrisi coverage'a dahil (~57%);
    5 ölçek × 4 tema × 2 yoğunluk + alarm/grup/portföy/ayarlar pencereleri.
 10. **Regresyon düzeltmesi.** Row menüye Ayarlar/Semboller/Portföy/Gruplar
     eklendi; `is_us_exchange` artık `NGM`/`NCM`/Nasdaq katmanlarını ve

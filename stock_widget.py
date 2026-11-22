@@ -194,6 +194,7 @@ SETTINGS_DEFAULTS = {
     "close_to_tray": True,
     "sort_mode": "manual",
     "portfolio_show_cost": False,
+    "hide_portfolio_amount": False,
     "alarms": {},
     "quiet_enabled": False,
     "quiet_start": 23,
@@ -1105,6 +1106,8 @@ def load_config():
     if cfg.get("sort_mode") not in ("manual", "change", "symbol", "value"):
         cfg["sort_mode"] = SETTINGS_DEFAULTS["sort_mode"]
     cfg["portfolio_show_cost"] = _cfg_bool(cfg, "portfolio_show_cost", False)
+    cfg["hide_portfolio_amount"] = _cfg_bool(
+        cfg, "hide_portfolio_amount", False)
     cfg["always_on_top"] = _cfg_bool(cfg, "always_on_top", True)
     cfg["close_to_tray"] = _cfg_bool(cfg, "close_to_tray", True)
     cfg["pause_when_closed"] = _cfg_bool(cfg, "pause_when_closed", False)
@@ -3016,6 +3019,13 @@ class StockWidget:
         self.canvas.tag_bind("refresh_btn", "<Button-1>",
                              lambda e: self.root.after(
                                  10, self._header_refresh))
+        self.canvas.tag_bind("privacy_btn", "<Enter>",
+                             lambda e: self._set_privacy_color(ACCENT))
+        self.canvas.tag_bind("privacy_btn", "<Leave>",
+                             lambda e: self._set_privacy_color(MUTED))
+        self.canvas.tag_bind("privacy_btn", "<Button-1>",
+                             lambda e: self.root.after(
+                                 10, self.toggle_portfolio_privacy))
         self.canvas.tag_bind("market_dot", "<Enter>",
                              self._show_market_tip)
         self.canvas.tag_bind("market_dot", "<Leave>",
@@ -3246,6 +3256,12 @@ class StockWidget:
                 label=label, value=mode, variable=self.sort_var,
                 command=lambda v=mode: self.set_sort_mode(v))
         m.add_cascade(label="Sıralama", menu=self.sort_menu)
+        self.privacy_var = tk.BooleanVar(
+            value=bool(self.cfg.get("hide_portfolio_amount")))
+        m.add_checkbutton(
+            label="Portföy miktarını gizle", variable=self.privacy_var,
+            command=lambda: self.set_portfolio_privacy(
+                self.privacy_var.get()))
         self.row_menu = tk.Menu(self.root, tearoff=0, bg=MENU_BG, fg=FG,
                                 activebackground=MENU_ACTIVE,
                                 activeforeground=FG, bd=0)
@@ -3445,6 +3461,7 @@ class StockWidget:
             c.create_text(w - self.PAD, mid, text="adet gir", anchor="e",
                           fill=DIM, font=("Segoe UI", 7), tags=("pf",))
             return
+        hidden = bool(self.cfg.get("hide_portfolio_amount"))
         if mixed:
             # Farklı para birimlerini toplamak yanlış sonuç verir; ayrı göster.
             totals = [fmt_money(v["value"], ccode)
@@ -3452,8 +3469,9 @@ class StockWidget:
             text = " · ".join(totals[:2])
             if len(totals) > 2:
                 text += " +%d" % (len(totals) - 2)
-            c.create_text(w - self.PAD, mid, text=text or "farklı para birimi",
-                          anchor="e", fill=AMBER,
+            c.create_text(w - self.PAD, mid,
+                          text="••••" if hidden else (text or "farklı para birimi"),
+                          anchor="e", fill=AMBER if not hidden else FG,
                           font=(self.mono, 7, "bold"), tags=("pf",))
             return
         base = val - day
@@ -3470,7 +3488,10 @@ class StockWidget:
                          tags=("pf",))
         c.create_text((px1 + px2) / 2.0, mid, text=pct_txt, fill=col,
                       font=("Segoe UI", 7, "bold"), tags=("pf",))
-        if self.cfg.get("portfolio_show_cost"):
+        if hidden:
+            label = "•••• / ••••" if self.cfg.get("portfolio_show_cost") else "••••"
+            font = (self.mono, 8, "bold")
+        elif self.cfg.get("portfolio_show_cost"):
             label = "%s / %s" % (fmt_money(val, cur), fmt_money(cost, cur))
             font = (self.mono, 7, "bold")
         else:
@@ -3487,6 +3508,33 @@ class StockWidget:
             self._draw_portfolio(self._pf_y)
         except tk.TclError:
             pass
+
+    def _set_privacy_color(self, color):
+        try:
+            self.canvas.itemconfig(self.privacy_id, fill=color)
+        except (tk.TclError, AttributeError):
+            pass
+
+    def _update_privacy_button(self):
+        try:
+            self.canvas.itemconfig(
+                self.privacy_id,
+                text="◌" if self.cfg.get("hide_portfolio_amount") else "◉")
+        except (tk.TclError, AttributeError):
+            pass
+
+    def set_portfolio_privacy(self, hidden):
+        self.cfg["hide_portfolio_amount"] = bool(hidden)
+        save_config(self.cfg)
+        var = getattr(self, "privacy_var", None)
+        if var is not None:
+            var.set(bool(hidden))
+        self._update_privacy_button()
+        self._update_portfolio()
+
+    def toggle_portfolio_privacy(self):
+        self.set_portfolio_privacy(
+            not self.cfg.get("hide_portfolio_amount"))
 
     # ---------- geometry helpers ----------
 
@@ -3536,7 +3584,12 @@ class StockWidget:
                                         text="⟳", anchor="center", fill=MUTED,
                                         font=("Segoe UI Symbol", 11),
                                         tags=("refresh_btn",))
-        time_x = W - self.PAD - self.s(34)
+        self.privacy_id = c.create_text(
+            W - self.PAD - self.s(39), self.s(16),
+            text="◌" if self.cfg.get("hide_portfolio_amount") else "◉",
+            anchor="center", fill=MUTED, font=("Segoe UI Symbol", 9),
+            tags=("privacy_btn",))
+        time_x = W - self.PAD - self.s(53)
         dot_x = time_x - self.s(30)
         self.dot_id = c.create_oval(dot_x, self.s(14),
                                     dot_x + self.s(5), self.s(19),

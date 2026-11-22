@@ -48,7 +48,8 @@ $env:SW_DATA_DIR = "$PWD\veri"
 - **Detay paneli:** **1G / 1H / 1A / 1Y**, çizgi/mum, hacim ve sağ fiyat ekseni,
   temettü/bölünme işaretleri, hedef/maliyet çizgileri; **Esc** ya da **✕** kapatır.
 - **Portföy:** değer, günlük değişim ve pozisyon K/Z; hedef fiyat, not, maliyet,
-  para birimi başına toplam, **CSV** ve yerel portföy geçmişi grafiği.
+  para birimi başına toplam, **CSV** ve yerel portföy geçmişi grafiği. Karttaki
+  göz düğmesi portföy tutarını gizler; yüzdeler görünür kalır.
 - **Alarm ve düzen:** fiyat, günlük değişim ve maliyete göre kâr/zarar alarmı;
   detay grafiğinde sağ tıkla seviyeden alarm; sessiz saat, erteleme, alarm
   geçmişi; sıralama, gruplar ve odak modu. Sağ tıkta taşıma, kopyalama ve
@@ -120,6 +121,7 @@ anahtarlar korunur; geçersiz sembol/pozisyon satırları sessizce atılır.
 | `alarms` | `{ "AAPL": { "above": 210, "below": 180, "pct": 5, "profit": 20, "loss": 10, "extended": false } }` |
 | `sort_mode` | `manual`, `change`, `symbol` veya `value`. |
 | `portfolio_show_cost` | `true` ise kartta değerin yanında maliyet de görünür. |
+| `hide_portfolio_amount` | `true` ise kartta portföy tutarı maskelenir, yüzde kalır. |
 | `language` | `tr` veya `en` (arayüz; log/CLI değişmez). |
 | `quiet_enabled`, `quiet_start`, `quiet_end` | Sessiz saatler (0–23). |
 | `focus_mode`, `focus_symbol` | Tek sembol odak modu. |

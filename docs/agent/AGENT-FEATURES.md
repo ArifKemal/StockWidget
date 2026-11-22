@@ -37,6 +37,7 @@ Bilinmeyen anahtarlar korunur, geçersiz satırlar sessizce atılır.
   "close_to_tray": true,
   "sort_mode": "manual | change | symbol | value",
   "portfolio_show_cost": false,
+  "hide_portfolio_amount": false,
   "symbols": ["AAPL", "MSFT"],
   "positions": {
     "AAPL": {"qty": 2, "avg": 100, "target": 200, "note": "uzun vade"}
@@ -247,7 +248,7 @@ silindi. Bu bölüm yukarıdaki sözleşmelere eklenir.
 - `_row_height` artık `_view_symbols` sayısını kullanır (odak/grup için şart).
 
 ### Test/CI/dağıtım
-- 130 unittest + `tools/ui_matrix.py` coverage'a dahil; eşik **40** (ölçülen ~56).
+- 132 unittest + `tools/ui_matrix.py` coverage'a dahil; eşik **40** (ölçülen ~57).
 - `mypy.ini` yalnızca `market_calendar.py`; CI `python -m mypy`.
 - Release: 3 artifact için `actions/attest-build-provenance@v2`.
 - CI: Inno 0.0.1 → 0.0.2 yükseltme, tek kaldırıcı ve sürüm doğrulaması.

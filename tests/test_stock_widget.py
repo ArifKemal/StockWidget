@@ -1195,6 +1195,41 @@ class PortfolioExtraTest(unittest.TestCase):
     def test_csv_empty_portfolio(self):
         self.assertEqual(sw.portfolio_csv_rows({}, {}), [])
 
+    def test_hidden_portfolio_amount_is_masked(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.cfg = {"positions": {"AAPL": {"qty": 2, "avg": 100}},
+                   "portfolio_show_cost": True,
+                   "hide_portfolio_amount": True}
+        app.last = {"AAPL": {"price": 150, "prev_close": 140,
+                             "currency": "USD"}}
+        app.canvas = _FakeCanvas()
+        app.W = 300
+        app.PAD = 10
+        app.s = lambda v: int(round(v))
+        app.font_pct = _StubFont()
+        app.mono = "Courier"
+        app._round_rect = lambda *a, **k: None
+        app._draw_portfolio(0)
+        texts = [i["opts"].get("text", "") for i in app.canvas.items
+                 if i["kind"] == "text"]
+        self.assertTrue(any("••••" in text for text in texts), texts)
+        self.assertFalse(any("$" in text for text in texts), texts)
+
+    def test_privacy_toggle_persists(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.cfg = {"hide_portfolio_amount": False}
+        app.privacy_var = mock.Mock()
+        app._update_privacy_button = mock.Mock()
+        app._update_portfolio = mock.Mock()
+        with mock.patch.object(sw, "save_config", return_value=True):
+            app.set_portfolio_privacy(True)
+        self.assertTrue(app.cfg["hide_portfolio_amount"])
+        app.privacy_var.set.assert_called_once_with(True)
+        app._update_portfolio.assert_called_once()
+        with mock.patch.object(sw, "save_config", return_value=True):
+            app.toggle_portfolio_privacy()
+        self.assertFalse(app.cfg["hide_portfolio_amount"])
+
 
 class SortingTest(unittest.TestCase):
     def _app(self):
@@ -1583,6 +1618,7 @@ class ConfigExtraTest(unittest.TestCase):
                                           "BAD": "x", "GARAN.IS": 5},
                         "group_filter": 7,
                         "language": "de",
+                        "hide_portfolio_amount": "evet",
                     }, f)
                 cfg = sw.load_config()
                 self.assertTrue(cfg["quiet_enabled"])
@@ -1594,6 +1630,7 @@ class ConfigExtraTest(unittest.TestCase):
                                  {"AAPL": "Teknoloji"})
                 self.assertEqual(cfg["group_filter"], "")
                 self.assertEqual(cfg["language"], "tr")
+                self.assertTrue(cfg["hide_portfolio_amount"])
             finally:
                 sw.CONFIG_FILE = old
                 sw._CONFIG_FROM_BACKUP = False

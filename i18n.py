@@ -131,6 +131,7 @@ _DIRECT: dict[str, str] = {
     "SEMBOL · HEDEF · NOT": "SYMBOL · TARGET · NOTE",
     "Günlük değişim": "Day change",
     "Kartta maliyeti göster": "Show cost on card",
+    "Portföy miktarını gizle": "Hide portfolio amount",
     "Portföy boş.": "Portfolio empty.",
     "Adet, maliyet, hedef ve not gir; boş adet satırı siler.":
         "Enter qty, cost, target and note; empty qty removes the row.",
