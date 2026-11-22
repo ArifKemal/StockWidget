@@ -10,6 +10,8 @@ Windows masaüstü hisse widget'ı. Tek dosya Python/Tkinter uygulaması; sembol
 - `AGENT.md` — bu dosya: mimari kurallar + değişiklik günlüğü
 - `AGENT-FEATURES.md` — ücretsiz paket turunun ajan analiz haritası (config
   şeması, fonksiyon sözleşmeleri, veri akışı, test kancaları, geri alma)
+- `AGENT-MEMORY.md` — oturumlar arası kalıcı notlar: kullanıcı tercihleri,
+  mevcut dal/kurulum durumu, regresyon tuzakları, yapılmayacaklar
 - `test_stock_widget.py` — stdlib `unittest` birim testleri (ağa çıkmaz)
 - `market_calendar.py` — ABD/BIST/kripto profilleri, TR tatilleri (tipli modül)
 - `i18n.py` — TR/EN arayüz çevirisi; Tk metinlerini tek noktadan çevirir

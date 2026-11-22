@@ -2,8 +2,9 @@
 
 Bu dosya, sonraki ajanların kodu yeniden keşfetmeden değişiklik yapabilmesi
 için **girdi/çıktı, veri akışı ve değişmez (invariant) haritası** verir.
-Kullanıcı dokümanı `README.md`, genel mimari `AGENT.md`'dir; bu dosya
-ücretsiz paket turunun sözleşmesidir.
+Kullanıcı dokümanı `README.md`, genel mimari `AGENT.md`, oturumlar arası
+kalıcı notlar `AGENT-MEMORY.md`'dir; bu dosya ücretsiz paket turunun
+sözleşmesidir.
 
 ## Dal, commit ve geri alma
 
