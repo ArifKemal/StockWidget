@@ -2196,6 +2196,7 @@ class DetailPanel:
         self._dy = 0
         self._plot = None
         self._chart_menu = None
+        self._alarm_dialog = None
         self._hover_idx = None
         self._tab_geo = []
         self._tab_y = (0, 0)
@@ -2487,6 +2488,12 @@ class DetailPanel:
         if self._closed:
             return
         self._closed = True
+        dlg = getattr(self, "_alarm_dialog", None)
+        if dlg is not None:
+            try:
+                dlg.destroy()
+            except tk.TclError:
+                pass
         if self.app._detail is self:
             self.app._detail = None
         try:
@@ -2653,17 +2660,15 @@ class DetailPanel:
                 break
 
     def _on_chart_right_click(self, event):
-        """Grafikte fiyat seviyesine sağ tık: üst/alt alarm kur."""
+        """Grafikte sağ tık: seviyeden veya elle fiyat girerek alarm kur."""
+        if self._closed:
+            return
         p = self._plot
-        if self._closed or not p:
-            return
-        price = chart_price_at(event.y, p["y1"], p["y2"], p["lo"], p["hi"])
-        price = round_chart_price(price)
-        if price is None:
-            return
+        price = None
+        if p:
+            price = round_chart_price(
+                chart_price_at(event.y, p["y1"], p["y2"], p["lo"], p["hi"]))
         info = self.app.last.get(self.symbol) or {}
-        cur = info.get("currency") or "USD"
-        price_txt = fmt_money(price, cur)
         rules = (self.app.cfg.get("alarms") or {}).get(self.symbol) or {}
         try:
             old = getattr(self, "_chart_menu", None)
@@ -2675,12 +2680,18 @@ class DetailPanel:
                        activebackground=MENU_ACTIVE, activeforeground=FG,
                        bd=0)
         self._chart_menu = menu
+        if price is not None:
+            price_txt = fmt_money(price, info.get("currency") or "USD")
+            menu.add_command(
+                label="Üstünde alarm kur · %s" % price_txt,
+                command=lambda: self._set_chart_alarm("above", price))
+            menu.add_command(
+                label="Altında alarm kur · %s" % price_txt,
+                command=lambda: self._set_chart_alarm("below", price))
+            menu.add_separator()
         menu.add_command(
-            label="Üstünde alarm kur · %s" % price_txt,
-            command=lambda: self._set_chart_alarm("above", price))
-        menu.add_command(
-            label="Altında alarm kur · %s" % price_txt,
-            command=lambda: self._set_chart_alarm("below", price))
+            label="Fiyat girerek alarm kur…",
+            command=lambda: self._open_alarm_dialog(price))
         if rules:
             menu.add_separator()
             menu.add_command(label="Alarmları düzenle…",
@@ -2704,13 +2715,112 @@ class DetailPanel:
         self.app.clear_chart_alarms(self.symbol)
         self.render()
 
+    def _open_alarm_dialog(self, price=None):
+        """Grafik aralığından bağımsız olarak elle alarm fiyatı gir."""
+        dlg = getattr(self, "_alarm_dialog", None)
+        if dlg is not None and dlg.winfo_exists():
+            dlg.deiconify()
+            dlg.lift()
+            dlg.focus_set()
+            return dlg
+        s = self.s
+        dlg = tk.Toplevel(self.win)
+        self._alarm_dialog = dlg
+        dlg.configure(bg=CARD)
+        dlg.attributes("-topmost", True)
+        dlg.transient(self.win)
+        dlg.title("Alarm fiyatı")
+        dlg.resizable(False, False)
+        try:
+            dlg.iconbitmap(ICON_FILE)
+        except tk.TclError:
+            pass
+        dark_title_bar(dlg)
+        tk.Label(dlg, text="ALARM FİYATI", bg=CARD, fg=MUTED,
+                 font=self.app.f_title).pack(anchor="w", padx=s(14),
+                                             pady=(s(12), s(2)))
+        tk.Label(dlg, text="Grafik aralığının dışında bir seviye de olabilir.",
+                 bg=CARD, fg=DIM, font=self.app.f_foot,
+                 anchor="w").pack(fill="x", padx=s(14), pady=(0, s(8)))
+        entry = tk.Entry(dlg, bg=RAISED, fg=FG, insertbackground=FG,
+                         relief="flat", font=(self.app.mono, 11),
+                         justify="right", width=14, highlightthickness=1,
+                         highlightbackground=ENTRY_BORDER,
+                         highlightcolor=ACCENT)
+        entry.pack(fill="x", padx=s(14), ipady=s(5))
+        info = self.app.last.get(self.symbol) or {}
+        initial = price if price is not None else _to_float(info.get("price"))
+        if initial is not None:
+            entry.insert(0, ("%.4f" if initial < 1 else "%.2f") % initial)
+        error = tk.Label(dlg, text="", bg=CARD, fg=RED,
+                         font=self.app.f_foot, anchor="w")
+        error.pack(fill="x", padx=s(14), pady=(s(3), 0))
+
+        def submit(kind):
+            raw = (entry.get() or "").strip().replace(",", ".")
+            value = _to_float(raw)
+            if value is None or value <= 0:
+                error.config(text="Geçerli, pozitif bir fiyat gir.")
+                entry.focus_set()
+                return
+            self.app.set_chart_alarm(self.symbol, kind, value)
+            self.render()
+            dlg.destroy()
+
+        buttons = tk.Frame(dlg, bg=CARD)
+        buttons.pack(fill="x", padx=s(14), pady=(s(4), s(6)))
+        tk.Button(buttons, text="Üstünde alarm kur", bg=ACCENT,
+                  fg="#ffffff", bd=0, activebackground=ACCENT_HOVER,
+                  activeforeground="#ffffff", font=("Segoe UI", 8, "bold"),
+                  cursor="hand2",
+                  command=lambda: submit("above")).pack(
+            side="left", expand=True, fill="x", ipady=s(4))
+        tk.Button(buttons, text="Altında alarm kur", bg=ACCENT,
+                  fg="#ffffff", bd=0, activebackground=ACCENT_HOVER,
+                  activeforeground="#ffffff", font=("Segoe UI", 8, "bold"),
+                  cursor="hand2",
+                  command=lambda: submit("below")).pack(
+            side="left", expand=True, fill="x", padx=(s(5), 0), ipady=s(4))
+        tk.Button(dlg, text="İptal", bg=BTN, fg=FG, bd=0,
+                  activebackground=BTN_HOVER, activeforeground=FG,
+                  font=("Segoe UI", 8), cursor="hand2",
+                  command=dlg.destroy).pack(fill="x", padx=s(14),
+                                            pady=(0, s(12)), ipady=s(3))
+        dlg.bind("<Return>", lambda e: (submit("above"), "break")[1])
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
+        dlg.bind("<Destroy>", lambda e: (
+            setattr(self, "_alarm_dialog", None)
+            if e.widget is dlg else None))
+        dlg.update_idletasks()
+        w = s(330)
+        h = dlg.winfo_reqheight()
+        sm = ctypes.windll.user32.GetSystemMetrics
+        dlg.geometry("%dx%d+%d+%d" % (w, h, sm(0) // 2 - w // 2,
+                                      sm(1) // 2 - h // 2))
+        entry.focus_set()
+        entry.select_range(0, "end")
+        return dlg
+
     def _draw_alarm_lines(self, info, lo, hi, rng, pad, x2, y1, y2):
         """Grafikte kayıtlı üst/alt alarm seviyelerini çiz."""
         rules = (self.app.cfg.get("alarms") or {}).get(self.symbol) or {}
+        cur = info.get("currency") or "USD"
         for kind, label in (("above", "üst alarm"),
                             ("below", "alt alarm")):
             value = _to_float(rules.get(kind))
-            if value is None or not (lo <= value <= hi) or hi <= lo:
+            if value is None or hi <= lo:
+                continue
+            if value > hi:
+                self.canvas.create_text(
+                    pad + self.s(2), y1 + self.s(4),
+                    text="↑ %s" % fmt_money(value, cur), anchor="w",
+                    fill=AMBER, font=("Segoe UI", 6, "bold"))
+                continue
+            if value < lo:
+                self.canvas.create_text(
+                    pad + self.s(2), y2 - self.s(4),
+                    text="↓ %s" % fmt_money(value, cur), anchor="w",
+                    fill=AMBER, font=("Segoe UI", 6, "bold"))
                 continue
             y = y2 - (value - lo) / rng * (y2 - y1)
             self.canvas.create_line(pad, y, x2, y, fill=AMBER,

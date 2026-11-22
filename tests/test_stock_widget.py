@@ -1678,6 +1678,21 @@ class ChartAlarmTest(unittest.TestCase):
         self.assertEqual(len(texts), 2)
         self.assertTrue(all(i["opts"]["fill"] == sw.AMBER for i in lines))
 
+    def test_off_range_alarm_arrows(self):
+        half = sw.DetailPanel.__new__(sw.DetailPanel)
+        half.canvas = _FakeCanvas()
+        half.s = lambda v: int(round(v))
+        half.symbol = "AAPL"
+        half.app = mock.Mock()
+        half.app.cfg = {"alarms": {"AAPL": {"above": 130, "below": 80}}}
+        half._draw_alarm_lines({"currency": "USD"}, 100.0, 120.0, 20.0,
+                               0, 200, 0, 100)
+        texts = [i["opts"].get("text", "") for i in half.canvas.items
+                 if i["kind"] == "text"]
+        self.assertTrue(any(text.startswith("↑") for text in texts), texts)
+        self.assertTrue(any(text.startswith("↓") for text in texts), texts)
+        self.assertFalse(any(i["kind"] == "line" for i in half.canvas.items))
+
     def test_app_chart_alarm_persists(self):
         app = sw.StockWidget.__new__(sw.StockWidget)
         app.cfg = {"alarms": {}}

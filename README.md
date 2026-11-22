@@ -51,7 +51,8 @@ $env:SW_DATA_DIR = "$PWD\veri"
   para birimi başına toplam, **CSV** ve yerel portföy geçmişi grafiği. Karttaki
   göz düğmesi portföy tutarını gizler; yüzdeler görünür kalır.
 - **Alarm ve düzen:** fiyat, günlük değişim ve maliyete göre kâr/zarar alarmı;
-  detay grafiğinde sağ tıkla seviyeden alarm; sessiz saat, erteleme, alarm
+  detay grafiğinde sağ tıkla seviyeden veya **fiyat girerek** alarm (grafik
+  aralığı dışındaki seviyeler okla gösterilir); sessiz saat, erteleme, alarm
   geçmişi; sıralama, gruplar ve odak modu. Sağ tıkta taşıma, kopyalama ve
   Yahoo Finance.
 - **Piyasalar:** ABD, BIST ve 7/24 kripto profilleri; BIST tatilleri, ₺ biçimi ve
