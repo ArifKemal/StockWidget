@@ -471,10 +471,22 @@ class HelperValidationTest(unittest.TestCase):
     def test_clean_symbol(self):
         for raw, want in (("aapl", "AAPL"), (" brk-b ", "BRK-B"),
                           ("^gspc", "^GSPC"), ("es=f", "ES=F"),
-                          ("BTC-USD", "BTC-USD")):
-            self.assertEqual(sw.clean_symbol(raw), want)
-        for bad in ("", "   ", None, 1, ["A"], "A B", "TOOLONGSYMBOL"):
+                          ("BTC-USD", "BTC-USD"),
+                          ("brk.b", "BRK-B"), ("THYAO.IS", "THYAO.IS"),
+                          ("nasdaq:aapl", "AAPL"), ("BIST:asels", "ASELS.IS"),
+                          ("bist:asels.is", "ASELS.IS")):
+            self.assertEqual(sw.clean_symbol(raw), want, raw)
+        for bad in ("", "   ", None, 1, ["A"], "A B", "TOOLONGSYMBOL",
+                    "XYZ:AAPL", "BIST:"):
             self.assertIsNone(sw.clean_symbol(bad), bad)
+
+    def test_symbol_candidates(self):
+        self.assertEqual(sw.symbol_candidates("aapl"), ["AAPL", "AAPL.IS"])
+        self.assertEqual(sw.symbol_candidates("ASELS.IS"), ["ASELS.IS"])
+        self.assertEqual(sw.symbol_candidates("brk.b"), ["BRK-B"])
+        self.assertEqual(sw.symbol_candidates("BTC-USD"), ["BTC-USD"])
+        self.assertEqual(sw.symbol_candidates("^GSPC"), ["^GSPC"])
+        self.assertEqual(sw.symbol_candidates("??"), [])
 
     def test_clean_symbols(self):
         self.assertEqual(sw.clean_symbols(["aapl", "AAPL", 1, None, ""]),
@@ -483,6 +495,67 @@ class HelperValidationTest(unittest.TestCase):
         self.assertEqual(sw.clean_symbols([]), sw.DEFAULT_SYMBOLS)
         many = ["S%d" % i for i in range(40)]
         self.assertEqual(len(sw.clean_symbols(many)), sw.MAX_SYMBOLS)
+
+
+class SymbolResolveTest(unittest.TestCase):
+    """Sembol ekleme: küçük harf, borsa öneki ve BIST yedeği."""
+
+    @staticmethod
+    def _http_404():
+        return sw.requests.exceptions.HTTPError(
+            "404", response=_Resp({"chart": {"result": None}}, status=404))
+
+    def test_lowercase_needs_no_fallback(self):
+        calls = []
+
+        def fetch(sym):
+            calls.append(sym)
+            return {"price": 1.0}
+
+        sym, info, err = sw.resolve_symbol(" aapl ", fetch)
+        self.assertEqual((sym, err), ("AAPL", None))
+        self.assertEqual(calls, ["AAPL"])
+
+    def test_bist_fallback_after_404(self):
+        calls = []
+
+        def fetch(sym):
+            calls.append(sym)
+            if sym == "ASELS":
+                raise self._http_404()
+            return {"price": 395.0, "exchange": "Istanbul"}
+
+        sym, info, err = sw.resolve_symbol("asels", fetch)
+        self.assertEqual((sym, err), ("ASELS.IS", None))
+        self.assertEqual(info["price"], 395.0)
+        self.assertEqual(calls, ["ASELS", "ASELS.IS"])
+
+    def test_empty_payload_counts_as_not_found(self):
+        def fetch(sym):
+            raise ValueError("no data")
+
+        self.assertEqual(sw.resolve_symbol("BIM", fetch),
+                         (None, None, "notfound"))
+
+    def test_network_error_stops_fallbacks(self):
+        calls = []
+
+        def fetch(sym):
+            calls.append(sym)
+            raise sw.requests.exceptions.ConnectionError("offline")
+
+        self.assertEqual(sw.resolve_symbol("asels", fetch),
+                         (None, None, "network"))
+        self.assertEqual(calls, ["ASELS"])
+
+    def test_invalid_format(self):
+        self.assertEqual(sw.resolve_symbol("A B", lambda s: {}),
+                         (None, None, "format"))
+
+    def test_exchange_prefix_is_resolved(self):
+        self.assertEqual(sw.symbol_candidates("BIST:ASELS"), ["ASELS.IS"])
+        self.assertEqual(sw.symbol_candidates("NASDAQ:AAPL"),
+                         ["AAPL", "AAPL.IS"])
 
     def test_clean_positions(self):
         out = sw.clean_positions({

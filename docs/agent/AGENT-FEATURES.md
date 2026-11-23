@@ -157,6 +157,16 @@ ad, para birimi, `offline`, `stale`, aktif alarm türleri ve `tuple(spark)`.
   CSV `utf-8-sig`, `;` ayraç; `portfolio_csv_rows` + para birimi toplamları.
 - Gizleme tek yolu `hide_window()`; `_settings_dlg`, `_portfolio_dlg`,
   `_editor`, `_alarms_dlg` kapatılır.
+- Sembol ekleme sözleşmesi: `clean_symbol()` borsa önekini (`NASDAQ:`,
+  `NYSE:`, `BIST:`/`IST:` → `.IS`) ve sınıf hissesi noktasını (`BRK.B` →
+  `BRK-B`) normalize eder. `symbol_candidates()` yalnızca çıplak sembol için
+  `.IS` yedeği üretir; `resolve_symbol()` ilk aday 404 ise ikinciyi dener,
+  başarıda ek istek atmaz. Kota disiplini: ekleme başına en fazla 2 chart
+  isteği; periyodik yenileme değişmedi (sembol başına 1).
+- Ekleme penceresi worker'ı Tk'ye dokunmaz; sonucu `queue.Queue`'ya bırakır,
+  ana thread `dlg.after` ile toplar (worker'dan `root.after` çağırmak
+  "main thread is not in main loop" hatası veriyordu). Her sonuçta (hata,
+  zaman aşımı, başarı) entry ve ekle düğmesi yeniden etkinleşir.
 
 ## Test kancaları ve sınırlar
 
@@ -176,7 +186,7 @@ değişiklikleri cfg sembol sırasını bozmamalı; alarmlar ek Yahoo isteği
 
 ## Test envanteri
 
-123 test başlıca şunları kapsar:
+167 test başlıca şunları kapsar:
 
 - config fuzz / BOM / kesik dosya / `.bak` kurtarma / atomik yazma,
 - tatil takvimi (2000–2100), erken kapanış, yılbaşı kayması,
@@ -186,7 +196,9 @@ değişiklikleri cfg sembol sırasını bozmamalı; alarmlar ek Yahoo isteği
 - eski `_MEI` temizliği, update cache, sürüm karşılaştırma,
 - alarm doğrulama, above/below/pct latch, PÖ/PS seçimi,
 - portföy CSV, para birimi toplamları, sıralama modları,
-- render önbelleği, ABD dışı borsa PÖ/PS bastırma, metadata alanları.
+- render önbelleği, ABD dışı borsa PÖ/PS bastırma, metadata alanları,
+- sembol normalizasyonu (küçük harf, borsa öneki, `BRK.B`), BIST `.IS`
+  yedeği ve ağ hatasında yedek denemenin durması (`SymbolResolveTest`).
 
 Ek araçlar:
 

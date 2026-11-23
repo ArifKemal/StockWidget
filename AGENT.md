@@ -554,6 +554,24 @@ Klasör düzeni öncesi geri dönüş:
       onay ister; Hayır'da hiçbir şey yapılmaz.
     - `reset_settings()` programatik/test yolu değişmedi. Metinler TR/EN;
       `ResetConfirmTest` iptal ve onay yollarını doğrular.
+36. **Sembol ekleme düzeltmesi (2026-11-23)** —
+    - Kullanıcı "küçük yazınca anlamıyor / hiç bulamıyor" dedi. Ölçüm:
+      küçük harf zaten `clean_symbol()` ile büyütülüyordu; asıl kırılanlar
+      `NASDAQ:AAPL` / `BIST:ASELS` (reddediliyordu), BIST sembolleri
+      (`ASELS`, `BIM` → Yahoo 404) ve sınıf hisseleri (`BRK.B` → Yahoo
+      `BRK-B` ister) idi.
+    - `clean_symbol()`: borsa öneki (`NASDAQ:`, `NYSE:`, `BIST:` → `.IS`),
+      sınıf hissesi noktası (`BRK.B` → `BRK-B`), boşluk temizliği.
+      `symbol_candidates()` + `resolve_symbol()`: yalnızca ekleme sırasında,
+      ilk biçim 404 ise `.IS` yedeği; başarıda ikinci istek yok. Hata türleri
+      `format` / `notfound` / `network` olarak ayrıldı.
+    - Ekleme akışı artık `root.after`'ı worker thread'den çağırmıyor
+      ("main thread is not in main loop" RuntimeError'ı ekleme penceresini
+      "doğrulanıyor…"da bırakabiliyordu); sonuç `queue.Queue` + `dlg.after`
+      ile ana thread'de toplanıyor, 90 sn zaman aşımında düğme geri açılıyor.
+    - Canlı doğrulama: `aapl`→AAPL, `asels`→ASELS.IS (2 istek), `BIST:asels`
+      →ASELS.IS, `brk.b`→BRK-B, `NASDAQ:AAPL`→AAPL, `ZZZZZZ`→anlaşılır hata.
+      Testler 167; `SymbolResolveTest` + genişletilmiş `HelperValidationTest`.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

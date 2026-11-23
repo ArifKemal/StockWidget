@@ -99,6 +99,13 @@ portföy ve otomatik başlatma korunur). Alarmlar ve gruplar silineceği için
 Sıfırla onay ister. Pencerenin altından Semboller, Portföy
 ve Alarmlar pencereleri açılır.
 
+**Sembol ekleme:** büyük/küçük harf fark etmez (`aapl` → `AAPL`).
+`NASDAQ:AAPL` / `BIST:ASELS` gibi borsa önekleri ve `BRK.B` gibi sınıf
+hisseleri de anlaşılır. BIST için `.IS` gerekir: `ASELS` yazınca uygulama
+`ASELS.IS` biçimini kendisi dener; bulunamazsa uyarı gösterir. Kripto
+`BTC-USD`, endeks `^GSPC`, vadeli `ES=F` biçimindedir. Ekleme sırasında
+en fazla iki doğrulama isteği atılır; periyodik yenilemede ek istek yoktur.
+
 <p align="center">
   <img src="docs/ekran-ayarlar.png" width="430" alt="StockWidget Ayarlar penceresi — tema, veri, davranış ve dil">
 </p>

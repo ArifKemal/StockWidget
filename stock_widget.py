@@ -645,14 +645,89 @@ def _to_int(value, default=None):
         return default
 
 
+# Borsa öneki yazan kullanıcılar için: "NASDAQ:AAPL", "BIST:ASELS" gibi
+# TradingView biçimleri kabul edilir. BIST öneki Yahoo'nun ".IS" ekine çevrilir.
+EXCHANGE_PREFIXES = {
+    "NASDAQ": "", "NYSE": "", "AMEX": "", "ARCA": "", "NYSEARCA": "",
+    "BATS": "", "CBOE": "", "OTC": "", "US": "",
+    "BIST": ".IS", "IST": ".IS", "IMKB": ".IS",
+}
+
+
 def clean_symbol(value):
-    """Tek sembolü doğrular: büyük harf, boşluksuz; geçersizse None."""
+    """Tek sembolü doğrular: büyük harf, boşluksuz; geçersizse None.
+
+    - "aapl" / " Aapl " → "AAPL"
+    - "NASDAQ:AAPL" → "AAPL", "BIST:ASELS" → "ASELS.IS"
+    - "BRK.B" (sınıf hissesi) → "BRK-B"; "THYAO.IS" borsa eki korunur.
+    """
     if not isinstance(value, str):
         return None
-    sym = value.strip().upper()
+    sym = " ".join(value.split()).upper()
+    prefix, sep, rest = sym.partition(":")
+    if sep:
+        if prefix not in EXCHANGE_PREFIXES or not rest:
+            return None
+        suffix = EXCHANGE_PREFIXES[prefix]
+        sym = rest if (not suffix or rest.endswith(suffix)) else rest + suffix
+    head, dot, tail = sym.rpartition(".")
+    if dot and head and len(tail) == 1:
+        # BRK.B → BRK-B: Yahoo sınıf hisselerinde nokta değil tire kullanır.
+        sym = head + "-" + tail
     if not sym or not SYMBOL_RE.match(sym):
         return None
     return sym
+
+
+def symbol_candidates(value):
+    """Ekleme sırasında sırayla denenecek Yahoo biçimleri.
+
+    Yalnızca kullanıcı sembol eklerken kullanılır; periyodik yenilemede
+    ek istek üretmez. İlk biçim tutarsa ikinci istek atılmaz.
+    """
+    sym = clean_symbol(value)
+    if not sym:
+        return []
+    out = [sym]
+    bare = ("." not in sym and "-" not in sym and "=" not in sym
+            and not sym.startswith("^"))
+    if bare:
+        # "ASELS" yazan kullanıcı BIST'i kastediyor olabilir; Yahoo ".IS" ister.
+        out.append(sym + ".IS")
+    return out
+
+
+def resolve_symbol(value, fetcher=None):
+    """Girilen metni Yahoo sembolüne çözer.
+
+    Dönüş: (sembol, quote, hata); hata None | "format" | "notfound" | "network".
+    """
+    fetch = fetcher or fetch_quote
+    candidates = symbol_candidates(value)
+    if not candidates:
+        return None, None, "format"
+    network_error = None
+    for cand in candidates:
+        try:
+            return cand, fetch(cand), None
+        except ValueError:
+            continue          # Yahoo 200 + boş sonuç: bu biçim yok
+        except requests.exceptions.HTTPError as exc:
+            status = getattr(getattr(exc, "response", None), "status_code",
+                             None)
+            if status == 404:
+                continue      # sıradaki biçimi dene
+            network_error = exc
+            break
+        except requests.exceptions.RequestException as exc:
+            network_error = exc
+            break
+        except Exception as exc:  # beklenmeyen ayrıştırma hatası
+            network_error = exc
+            break
+    if network_error is not None:
+        return None, None, "network"
+    return None, None, "notfound"
 
 
 def clean_symbols(value):
@@ -4473,7 +4548,7 @@ class StockWidget:
         listf = tk.Frame(dlg, bg=CARD)
         listf.pack(fill="both", expand=True, padx=s(14))
 
-        status = tk.Label(dlg, text="Ticker yazıp Enter'a bas.",
+        status = tk.Label(dlg, text="Ticker yazıp Enter'a bas. BIST için .IS (örn. ASELS.IS).",
                           bg=CARD, fg=DIM, font=self.f_foot,
                           wraplength=s(250), justify="left", anchor="w")
         status.pack(fill="x", padx=s(14), pady=(s(6), s(2)))
@@ -4519,10 +4594,16 @@ class StockWidget:
                 fit()
                 self.refresh_now()
 
+        add_results = queue.Queue()
+        add_seq = {"n": 0, "active": 0}
+
         def do_add(event=None):
-            sym = clean_symbol(entry.get())
+            raw = entry.get()
+            sym = clean_symbol(raw)
             if not sym:
-                status.config(text="Geçerli bir ticker yaz (örn. AAPL).", fg=AMBER)
+                status.config(
+                    text="Geçerli bir ticker yaz (örn. AAPL, ASELS.IS).",
+                    fg=AMBER)
                 return
             if sym in self.cfg["symbols"]:
                 status.config(text="%s zaten listede." % sym, fg=AMBER)
@@ -4531,44 +4612,85 @@ class StockWidget:
                 status.config(text="Liste dolu (en fazla %d sembol)." % MAX_SYMBOLS,
                               fg=AMBER)
                 return
-            # Doğrulama ağ isteği ana thread'i dondurmasın: ayrı thread'de çalışır,
-            # sonuç root.after ile ana thread'e döner.
+            # Doğrulama ağ isteği ana thread'i dondurmasın: ayrı thread'de
+            # çalışır. Sonuç, Tk'ye dokunmayan bir kuyruğa bırakılır; ana
+            # thread `dlg.after` ile toplar (thread'den root.after çağırmak
+            # "main thread is not in main loop" hatası verebiliyordu).
             add_btn.config(state="disabled")
             entry.config(state="disabled")
             status.config(text="%s doğrulanıyor…" % sym, fg=MUTED)
+            # Zaman aşımından sonra geciken eski sonuç yeni isteğe karışmasın.
+            add_seq["n"] += 1
+            my_seq = add_seq["n"]
+            add_seq["active"] = my_seq
 
-            def on_done(ok, message):
-                if not ok:
-                    if dlg.winfo_exists():
+            def worker():
+                found, info, error = resolve_symbol(raw)
+                add_results.put((my_seq, found, info, error))
+
+            threading.Thread(target=worker, daemon=True).start()
+            deadline = time.time() + 90
+
+            def poll_add():
+                if not dlg.winfo_exists():
+                    return
+                if my_seq != add_seq["active"]:
+                    return            # yeni istek başladı; onun poll'u devraldı
+                payload = None
+                while True:
+                    try:
+                        item = add_results.get_nowait()
+                    except queue.Empty:
+                        break
+                    if item[0] == my_seq:
+                        payload = item
+                        break
+                if payload is None:
+                    if time.time() > deadline:
                         add_btn.config(state="normal")
                         entry.config(state="normal")
-                        status.config(text=message, fg=RED)
+                        status.config(text="Zaman aşımı. Tekrar dene.", fg=RED)
+                        return
+                    dlg.after(120, poll_add)
                     return
-                self.cfg["symbols"].append(sym)
+                _, found, info, error = payload
+                add_btn.config(state="normal")
+                entry.config(state="normal")
+                if error == "network":
+                    status.config(
+                        text="Bağlantı hatası. İnterneti kontrol edip "
+                             "tekrar dene.", fg=RED)
+                    return
+                if error == "format":
+                    status.config(
+                        text="Geçerli bir ticker yaz (örn. AAPL, ASELS.IS).",
+                        fg=AMBER)
+                    return
+                if error or not found:
+                    status.config(
+                        text="%s bulunamadı. BIST hissesiyse .IS ekle "
+                             "(örn. ASELS.IS)." % sym, fg=RED)
+                    return
+                if found in self.cfg["symbols"]:
+                    status.config(text="%s zaten listede." % found, fg=AMBER)
+                    return
+                self.cfg["symbols"].append(found)
                 save_config(self.cfg)
+                if info:
+                    self.last[found] = info
                 self.build_ui()
                 self._restore_position()
                 self.refresh_now()
-                if dlg.winfo_exists():
-                    add_btn.config(state="normal")
-                    entry.config(state="normal")
-                    rebuild_list()
-                    entry.delete(0, "end")
-                    status.config(text=message, fg=GREEN)
-                    fit()
+                rebuild_list()
+                entry.delete(0, "end")
+                if found != sym:
+                    status.config(text="%s eklendi (%s olarak bulundu)."
+                                  % (sym, found), fg=GREEN)
+                else:
+                    status.config(text="%s eklendi." % found, fg=GREEN)
+                fit()
 
-            def worker():
-                try:
-                    fetch_quote(sym)
-                    ok, message = True, "%s eklendi." % sym
-                except Exception:
-                    ok, message = False, "%s bulunamadı ya da bağlantı hatası." % sym
-                try:
-                    self.root.after(0, on_done, ok, message)
-                except tk.TclError:
-                    pass  # uygulama kapanmış olabilir
-
-            threading.Thread(target=worker, daemon=True).start()
+            poll_add()
 
         entry.bind("<Return>", do_add)
         add_btn = tk.Button(entry_row, text="Ekle", bg=ACCENT, fg="#ffffff",

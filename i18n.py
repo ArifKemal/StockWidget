@@ -185,7 +185,7 @@ _DIRECT: dict[str, str] = {
     "Grup adı yaz; boş bırakılan sembol grupsuz kalır. Menüdeki Grup filtresinden seçebilirsin.":
         "Type a group name; empty symbols stay ungrouped. "
         "Use the Group filter in the menu.",
-    "Ticker yazıp Enter'a bas.": "Type a ticker and press Enter.",
+    "Takip listesi": "Watchlist",
     "(liste boş)": "(list empty)",
     "(boş)": "(empty)",
     "Portföyü CSV'ye aktar": "Export portfolio to CSV",
@@ -201,8 +201,13 @@ _DIRECT: dict[str, str] = {
     "İndirme sayfası açılsın mı?": "Open the download page?",
     "En son sürümü kullanıyorsunuz": "You are up to date",
     "Güncelleme bilgisi alınamadı.": "Could not check for updates.",
-    "Geçerli bir ticker yaz (örn. AAPL).":
-        "Enter a valid ticker (e.g. AAPL).",
+    "Geçerli bir ticker yaz (örn. AAPL, ASELS.IS).":
+        "Enter a valid ticker (e.g. AAPL, ASELS.IS).",
+    "Ticker yazıp Enter'a bas. BIST için .IS (örn. ASELS.IS).":
+        "Type a ticker and press Enter. Use .IS for BIST (e.g. ASELS.IS).",
+    "Zaman aşımı. Tekrar dene.": "Timed out. Try again.",
+    "Bağlantı hatası. İnterneti kontrol edip tekrar dene.":
+        "Connection error. Check your internet and try again.",
     "PORTFÖY GEÇMİŞİ · SON 30 KAYIT":
         "PORTFOLIO HISTORY · LAST 30 ENTRIES",
     "Sessiz saat 0–23 arası olmalı.":
@@ -276,6 +281,13 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^Kaydedildi · (.+)$"), r"Saved · \1"),
     (re.compile(r"^(.+) kaldırıldı\.$"), r"\1 removed."),
     (re.compile(r"^(.+) eklendi\.$"), r"\1 added."),
+    (re.compile(r"^(.+) eklendi \((.+) olarak bulundu\)\.$"),
+     r"\1 added (resolved as \2)."),
+    (re.compile(r"^(.+) doğrulanıyor…$"), r"Validating \1…"),
+    (re.compile(r"^(.+) zaten listede\.$"), r"\1 is already in the list."),
+    (re.compile(r"^(.+) bulunamadı\. BIST hissesiyse \.IS ekle "
+                r"\(örn\. ASELS\.IS\)\.$"),
+     r"\1 not found. For BIST add .IS (e.g. ASELS.IS)."),
 ]
 
 
