@@ -1404,8 +1404,39 @@ def parse_version(text):
     return tuple(int(part or 0) for part in match.groups())
 
 
+def _latest_release_from_redirect(timeout=5):
+    """API limitine takılmadan son sürüm: releases/latest yönlendirmesi.
+
+    GitHub API anonim istekleri 403 ile sınırlayabiliyor; HTML yönlendirmesi
+    `/releases/tag/vX.Y.Z` verir ve ayrı bir kota tüketmez.
+    """
+    try:
+        resp = _http_get(RELEASES_URL, headers={
+            "User-Agent": "StockWidget/%s" % APP_VERSION,
+        }, timeout=timeout, allow_redirects=False)
+    except requests.exceptions.RequestException:
+        return None
+    headers = getattr(resp, "headers", None) or {}
+    location = headers.get("Location") or ""
+    match = re.search(r"/releases/tag/v?([0-9][^/?#\s]*)", location)
+    if not match:
+        return None
+    version = parse_version(match.group(1))
+    if not version:
+        return None
+    return {"version": ".".join(str(x) for x in version),
+            "url": location, "ts": time.time()}
+
+
 def check_latest_release(timeout=5):
-    """GitHub'daki son sürümü sorar; ağ hatasında None döner."""
+    """GitHub'daki son sürümü sorar; ağ hatasında None döner.
+
+    Önce `releases/latest` HTML yönlendirmesi denenir (API kotası tüketmez,
+    günde tek istek); olmazsa GitHub API yedeği kullanılır.
+    """
+    info = _latest_release_from_redirect(timeout)
+    if info:
+        return info
     try:
         resp = _http_get(UPDATE_URL, headers={
             "Accept": "application/vnd.github+json",
@@ -4152,7 +4183,10 @@ class StockWidget:
                 self.build_ui()     # sıralama değişti; satırlar yer değiştirdi
             else:
                 for sym in results:
-                    self._render_row(sym, self.last[sym])
+                    # Uçuştaki tur, sembol listeden çıkarılmadan önce başlamış
+                    # olabilir; budanan sembol için KeyError üretme.
+                    if sym in self.last:
+                        self._render_row(sym, self.last[sym])
             # Aynı fiyat paketi için diske yeniden yazma (SSD/GC dostu).
             blob = json.dumps(self.last, sort_keys=True,
                               separators=(",", ":"))

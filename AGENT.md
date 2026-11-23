@@ -512,6 +512,20 @@ Klasör düzeni öncesi geri dönüş:
       `previous_close_value`); PÖ'de 4,23 yerine 3,76 görünür.
     - Doğrulama: ONDS 4,07 → PÖ +8,24%, K/Z -53,2%; BRUN 3,90 → +9,55%,
       K/Z -85,6%; portföy rozeti +8,51% (ağırlıklı). Testler 154.
+33. **Baştan sona denetim (2026-11-23)** —
+    - Uçuştaki fetch, listeden çıkarılan sembolü geri getirince `apply_data`
+      `KeyError` üretiyordu; `poll_queue` yakaladığı için o tur sessizce
+      kayboluyordu. `_render_row` artık yalnızca `self.last`'ta kalan
+      semboller için çağrılır; `ApplyDataRaceTest` eklendi.
+    - EN arayüzde 6 metin Türkçe kalıyordu (boş takip listesi, geçerli ticker,
+      sessiz saat uyarıları, portföy geçmişi başlığı, "karışık"). `_DIRECT`
+      tamamlandı; `I18nTest` genişletildi.
+    - Güncelleme denetimi GitHub API 403 (anonim kota) alınca "ulaşılamadı"
+      diyordu. Artık önce `releases/latest` HTML yönlendirmesi okunur (API
+      kotası yok, günde tek istek); API yalnızca yedek. Canlı doğrulandı: 1.1.0.
+    - Denetim kapsamı: 158 test, ruff/mypy, UI matrisi, frozen smoke A/B/C,
+      Inno derlemesi, manifest/bump/screenshot araçları, canlı 1H/1A/1Y,
+      takvim profilleri, menü bağlantıları ve stockanalysis fiyat kontrolü.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

@@ -931,6 +931,42 @@ class NightPauseTest(unittest.TestCase):
         self.assertEqual(calls, [1])
 
 
+class ApplyDataRaceTest(unittest.TestCase):
+    """Uçuştaki fetch, listeden çıkarılan sembolü geri getirse de çökmemeli."""
+
+    def _app(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.cfg = {"symbols": ["BBB"], "sort_mode": "manual"}
+        app.last = {"AAA": {"price": 1.0}, "BBB": {"price": 2.0}}
+        app._view_symbols = ["BBB"]
+        app._snapshot_blob = None
+        app._data_ts = 0
+        app._detail = None
+        app._check_alarms = lambda: None
+        app._update_status = lambda: None
+        app._update_portfolio = lambda: None
+        app._record_history = lambda: None
+        app._render_row = lambda sym, info: None
+        return app
+
+    def test_removed_symbol_in_inflight_results_is_ignored(self):
+        app = self._app()
+        with mock.patch.object(sw, "save_snapshot"):
+            app.apply_data({"AAA": {"price": 1.5}}, False)
+        self.assertNotIn("AAA", app.last)
+        self.assertEqual(app.last, {"BBB": {"price": 2.0}})
+
+    def test_kept_symbols_still_render(self):
+        app = self._app()
+        rendered = []
+        app._render_row = lambda sym, info: rendered.append(sym)
+        with mock.patch.object(sw, "save_snapshot"):
+            app.apply_data({"AAA": {"price": 1.5},
+                            "BBB": {"price": 2.5}}, False)
+        self.assertEqual(rendered, ["BBB"])
+        self.assertEqual(app.last["BBB"]["price"], 2.5)
+
+
 class VersionSyncTest(unittest.TestCase):
     def test_version_files_match(self):
         root = os.path.dirname(os.path.abspath(sw.__file__))
@@ -1135,6 +1171,34 @@ class UpdateCheckTest(unittest.TestCase):
             self.assertIsNone(sw.check_latest_release())
         with mock.patch.object(sw._HTTP, "get",
                                return_value=_Resp({}, status=500)):
+            self.assertIsNone(sw.check_latest_release())
+
+    def test_redirect_first_avoids_api(self):
+        calls = []
+
+        def fake_get(url, **kwargs):
+            calls.append(url)
+            if "api.github.com" in url:
+                return _Resp({"message": "rate limit"}, status=403)
+            return _Resp(status=302, headers={
+                "Location": "https://github.com/ArifKemal/StockWidget/"
+                            "releases/tag/v1.4.0"})
+
+        with mock.patch.object(sw._HTTP, "get", side_effect=fake_get):
+            info = sw.check_latest_release()
+        self.assertEqual(info["version"], "1.4.0")
+        self.assertIn("/tag/v1.4.0", info["url"])
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("api.github.com", calls[0])
+
+    def test_redirect_without_version_is_ignored(self):
+        def fake_get(url, **kwargs):
+            if "api.github.com" in url:
+                return _Resp({}, status=403)
+            return _Resp(status=302, headers={
+                "Location": "https://github.com/ArifKemal/StockWidget/"})
+
+        with mock.patch.object(sw._HTTP, "get", side_effect=fake_get):
             self.assertIsNone(sw.check_latest_release())
 
     def test_manual_check_reports_when_no_data(self):
@@ -1896,6 +1960,11 @@ class I18nTest(unittest.TestCase):
                          "last update 12 min ago")
         self.assertEqual(sw.T("AAPL · Alarm kur…"), "AAPL · Set alarm…")
         self.assertEqual(sw.T("Yeni sürüm: 2.0.1"), "New version: 2.0.1")
+        self.assertEqual(sw.T("karışık"), "mixed")
+        self.assertEqual(sw.T("Takip listesi boş."), "Watchlist is empty.")
+        self.assertEqual(
+            sw.T("Takip listesi boş.\nSağ tık → Sembol ekle ile başla."),
+            "Watchlist is empty.\nRight-click → Add symbol to start.")
         sw.i18n.set_language("tr")
         self.assertEqual(sw.T("Yenile"), "Yenile")
 

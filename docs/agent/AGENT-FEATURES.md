@@ -116,6 +116,8 @@ ad, para birimi, `offline`, `stale`, aktif alarm türleri ve `tuple(spark)`.
    açıkken ve hiçbir piyasa açık değilken `us_quiet_hours()` (hafta sonu/tatil,
    20:05–04:00 ET) ağ isteği üretmez; `PAUSE_POLL` ile saat kontrol edilir.
 2. Sonuç `self.queue` → `poll_queue` (200 ms) → `apply_data(results, offline)`.
+   Uçuştaki tur, sembol listeden çıkarılmadan önce başlamış olabilir; `results`
+   içindeki budanmış semboller `self.last` kontrolüyle atlanır.
 3. `apply_data` sırası:
    - `offline` ve `stale` güncelle; `_data_ts` `bar_ts`/`quote_ts` en büyüğü
      (veri zamanı; aynı Cuma barı tekrar gelse bile "az önce" yazılmaz);
@@ -208,6 +210,8 @@ Ek araçlar:
   yalnızca gösterge/rozet içindir, veri toplama sıklığını değiştirmez.
 - Alarmlar yalnızca uygulama açıkken çalışır; arka plan servisi yok.
 - Otomatik indirme/kurulum yok (bilinçli güvenlik kararı); yalnızca bildirim.
+  Denetim önce `releases/latest` HTML yönlendirmesini kullanır (API kotası
+  tüketmez); olmazsa GitHub API yedeği, o da olmazsa "bilgi alınamadı".
 - SignPath/Authenticode, Winget/Scoop deposuna PR dış hesap gerektirir;
   manifestler yalnızca üretilir, yayınlanmaz.
 - UPX/Nuitka denenmedi; onefile açılış maliyeti antivirüs taramasına bağlı.

@@ -177,7 +177,6 @@ _DIRECT: dict[str, str] = {
     "İptal": "Cancel",
     "üst alarm": "upper alarm",
     "alt alarm": "lower alarm",
-    "Takip listesi boş.": "Watchlist empty.",
     "Boş alan alarm yok demektir. Eşik aşıldığında bir kez tepsi bildirimi gelir; fiyat geri dönünce alarm yeniden kurulur. Kâr/Zarar % alanları pozisyon maliyetine göredir.":
         "Empty field means no alarm. A tray notification is shown once when "
         "the threshold is crossed; it re-arms when the price returns. "
@@ -202,6 +201,18 @@ _DIRECT: dict[str, str] = {
     "İndirme sayfası açılsın mı?": "Open the download page?",
     "En son sürümü kullanıyorsunuz": "You are up to date",
     "Güncelleme bilgisi alınamadı.": "Could not check for updates.",
+    "Geçerli bir ticker yaz (örn. AAPL).":
+        "Enter a valid ticker (e.g. AAPL).",
+    "PORTFÖY GEÇMİŞİ · SON 30 KAYIT":
+        "PORTFOLIO HISTORY · LAST 30 ENTRIES",
+    "Sessiz saat 0–23 arası olmalı.":
+        "Quiet hours must be between 0 and 23.",
+    "Sessiz saat 0–23 arası tam sayı olmalı.":
+        "Quiet hours must be whole numbers between 0 and 23.",
+    "Takip listesi boş.": "Watchlist is empty.",
+    "Sağ tık → Sembol ekle ile başla.":
+        "Right-click → Add symbol to start.",
+    "karışık": "mixed",
 }
 
 _PATTERNS: list[tuple[re.Pattern[str], str]] = [
