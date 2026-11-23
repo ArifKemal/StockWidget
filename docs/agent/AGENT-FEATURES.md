@@ -85,8 +85,9 @@ Doğrulama zinciri:
 aynı yanıttan fiyat, gün istatistikleri, spark/OHLC, `marketState`,
 `exchangeTimezoneName`, `regularMarketTime` üretir. Son 5 dk barının zamanı
 `bar_ts` olarak döner; durum satırı (`data_age_text`) bu yaşı gösterir, istek
-zamanını değil. `include_prepost=False` veya ABD dışı borsa ise
-`ext_session/ext_price` boştur.
+zamanını değil. PÖ/PS yüzdesi **son normal seans kapanışına** (`price`) göredir;
+`prev_close` yalnızca normal seans değişiminin tabanıdır. `include_prepost=False`
+veya ABD dışı borsa ise `ext_session/ext_price` boştur.
 
 ## `StockWidget` çalışma zamanı durumu
 

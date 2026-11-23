@@ -1499,8 +1499,11 @@ def fetch_quote(symbol, include_prepost=True):
         ext_session = bar_session(rows[-1][0])
         if ext_session:
             ext_price = float(rows[-1][1])
-            ext_pct = (ext_price / float(prev) - 1.0) * 100.0
-            ext_abs = ext_price - float(prev)
+            # Seans dışı değişim, sitelerde olduğu gibi son normal seans
+            # kapanışına (`price`) göre. `prev` bir önceki günün kapanışıdır;
+            # PÖ/PS'de taban olarak kullanılırsa yüzde yanlış çıkar.
+            ext_pct = (ext_price / float(price) - 1.0) * 100.0
+            ext_abs = ext_price - float(price)
     if len(rows) > 60:
         step = (len(rows) - 1) / 59.0
         idx = list(dict.fromkeys(int(round(i * step)) for i in range(60)))

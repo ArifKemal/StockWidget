@@ -44,7 +44,8 @@ $env:SW_DATA_DIR = "$PWD\veri"
 ## Özellikler
 
 - **Kart:** fiyat, günlük değişim, şirket adı ve mini grafik. PÖ/PS rozeti
-  grafikle aynı fiyatı gösterir; açılışta son fiyatlar önbellekten anında gelir.
+  grafikle aynı fiyatı gösterir ve değişimi son normal seans kapanışına göre
+  hesaplar; açılışta son fiyatlar önbellekten anında gelir.
 - **Detay paneli:** **1G / 1H / 1A / 1Y**, çizgi/mum, hacim ve sağ fiyat ekseni,
   temettü/bölünme işaretleri, hedef/maliyet çizgileri; **Esc** ya da **✕** kapatır.
 - **Portföy:** değer, günlük değişim ve pozisyon K/Z; hedef fiyat, not, maliyet,

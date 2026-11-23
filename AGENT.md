@@ -490,6 +490,15 @@ Klasör düzeni öncesi geri dönüş:
       Ayarlar → Veri → "Gece isteğini durdur".
     - Testler: pencere sınırları, hafta sonu/tatil, ağ çağrılmaması,
       elle yenileme.
+31. **PÖ/PS yüzdesinin tabanı** —
+    - Gerçek fiyatla karşılaştırma (stockanalysis.com): ONDS PÖ fiyatı 4,05
+      doğruydu, ama kart **-4,26%** gösterirken site **+7,71%** gösteriyordu.
+    - Neden: `ext_pct` bir önceki günün kapanışına (`prev` = 4,23) göre
+      hesaplanıyordu. Seans dışı değişimin tabanı **son normal seans kapanışı**
+      (`price` = 3,76) olmalı; siteler de böyle gösterir.
+    - `fetch_quote` artık `ext_price / price - 1` kullanır; kart, detay,
+      alarm ve hover aynı değeri görür. Ek istek yok.
+    - Test: `test_extended_change_uses_last_regular_close` (4,05/3,76 → +7,71%).
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

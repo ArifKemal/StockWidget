@@ -281,8 +281,10 @@ class HelpersTest(unittest.TestCase):
             self.assertEqual(info["spark"][-1], 5.10)
             self.assertEqual(info["ext_session"], "post")
             self.assertAlmostEqual(info["ext_price"], 5.10)
+            # Seans dışı değişim son normal kapanışa (4.68) göre; 4.76
+            # önceki günün kapanışıdır ve taban olamaz.
             self.assertAlmostEqual(info["ext_change_pct"],
-                                   (5.10 / 4.76 - 1.0) * 100.0)
+                                   (5.10 / 4.68 - 1.0) * 100.0)
 
             fake_get.with_post = False
             info = sw.fetch_quote("TEST", True)
@@ -707,6 +709,8 @@ class QuoteParsingTest(unittest.TestCase):
         with_pre = self._fetch(payload, include_prepost=True)
         self.assertEqual(with_pre["ext_session"], "post")
         self.assertEqual(with_pre["ext_price"], 3.0)
+        self.assertEqual(with_pre["ext_change_pct"], 0.0)
+        self.assertEqual(with_pre["ext_change_abs"], 0.0)
         self.assertEqual(len(with_pre["spark"]), 3)
         without = self._fetch(payload, include_prepost=False)
         self.assertIsNone(without["ext_session"])
@@ -730,6 +734,17 @@ class QuoteParsingTest(unittest.TestCase):
         self.assertEqual(with_pre["bar_ts"], float(stamps[-1]))
         regular = self._fetch(payload, include_prepost=False)
         self.assertEqual(regular["bar_ts"], float(stamps[1]))
+
+    def test_extended_change_uses_last_regular_close(self):
+        # Cuma kapanışı 3.76, önceki gün 4.23, pazartesi PÖ 4.05:
+        # sitelerdeki gibi değişim +7.71% (4.05/3.76), -4.26% değil.
+        pre_ts = calendar.timegm(
+            datetime.datetime(2026, 11, 23, 10, 0).timetuple())
+        payload = _chart_payload([4.05], [pre_ts], 3.76, 4.23)
+        info = self._fetch(payload, include_prepost=True)
+        self.assertEqual(info["ext_session"], "pre")
+        self.assertAlmostEqual(info["ext_change_pct"], 7.7128, places=3)
+        self.assertAlmostEqual(info["ext_change_abs"], 0.29, places=6)
 
 
 class FreshnessTextTest(unittest.TestCase):
