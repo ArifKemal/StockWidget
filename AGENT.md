@@ -580,9 +580,11 @@ Klasör düzeni öncesi geri dönüş:
     - `python tools/bump_version.py 1.1.1`: `APP_VERSION`,
       `packaging/version_info.txt`, `packaging/installer.iss` güncellendi;
       README indirme örneği 1.1.1 yapıldı.
-    - Doğrulama: 167 test, ruff/mypy, frozen smoke A/B/C, canlı GUI sembol
-      ekleme; kurulu exe 1.1.1'e güncellendi. Etiket `v1.1.1`; Release
-      workflow'u onefile exe + portatif ZIP + kurulum paketi üretir.
+    - Doğrulama: 167 test, ruff/mypy, canlı GUI sembol ekleme; kurulu exe
+      1.1.1'e güncellendi. Frozen smoke A/B/C 19:29'da 1.1.0 derlemesinde
+      geçti; 1.1.1 derlemesinde 20:01'de Yahoo ConnectTimeout nedeniyle
+      snapshot alınamadı (uygulama exit 0, çökme yok). Etiket `v1.1.1`;
+      Release workflow'u onefile exe + portatif ZIP + kurulum paketi üretir.
     - `v1.1.1` yayınlandı (Release #5, CI #61 başarılı). Assetler:
       `StockWidget-1.1.1.exe` `sha256:54e10387…` (24.115.645 bayt),
       `StockWidget-1.1.1-portable.zip` `sha256:61fdc35d…` (24.797.773),
