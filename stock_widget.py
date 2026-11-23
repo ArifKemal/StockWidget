@@ -471,6 +471,38 @@ def market_active():
 # Seans dışı etiketleri: piyasa öncesi / piyasa sonrası
 SESSION_LABEL = {"pre": "PÖ", "post": "PS"}
 
+# Bu yaştan eski veri "son güncelleme" sayılmaz; yaşı açıkça yazılır.
+DATA_FRESH_SECONDS = 20 * 60
+
+
+def _rel_seconds(seconds):
+    """Saniyeyi kısa Türkçe yaş metnine çevirir (saf, test edilebilir)."""
+    d = max(0, int(seconds))
+    if d < 60:
+        return "az önce"
+    if d < 3600:
+        return "%d dk önce" % (d // 60)
+    if d < 86400:
+        return "%d sa önce" % (d // 3600)
+    return "%d gün önce" % (d // 86400)
+
+
+def data_age_text(age, phase=None):
+    """Durum metni: istek zamanı değil verinin yaşı (saf fonksiyon).
+
+    Seans içinde taze veri "son güncelleme", eski veri "son veri" olarak
+    yazılır. PÖ/PS penceresi açıkken bar yoksa bunun işlem olmadığı söylenir;
+    böylece Cuma kapanışı pazartesi sabahı "az önce" gibi görünmez.
+    """
+    if age is None:
+        return "güncelleniyor…"
+    rel = _rel_seconds(age)
+    if age >= DATA_FRESH_SECONDS:
+        if phase in SESSION_LABEL:
+            return "işlem yok · son veri %s" % rel
+        return "son veri %s" % rel
+    return "son güncelleme %s" % rel
+
 
 def bar_session(ts):
     """Bir 5 dk barının ET saatine göre seansı: 'pre', 'post' ya da None.
@@ -1153,7 +1185,7 @@ SNAPSHOT_NUM_FIELDS = (
     "price", "prev_close", "change_pct", "change_abs",
     "ext_price", "ext_change_pct", "ext_change_abs",
     "open", "day_high", "day_low", "high_52w", "low_52w", "volume",
-    "quote_ts",
+    "quote_ts", "bar_ts",
 )
 SNAPSHOT_LIST_FIELDS = ("spark", "spark_times", "spark_volumes")
 SNAPSHOT_MAX_POINTS = 500
@@ -1416,6 +1448,7 @@ def fetch_quote(symbol, include_prepost=True):
     # olur; piyasa kapandıktan sonra da "kapanışta takılı" görünmez.
     ext_session = None
     ext_price = ext_pct = ext_abs = None
+    last_bar_ts = _to_float(rows[-1][0]) if rows else None
     if include_prepost and rows and is_us_exchange(meta):
         ext_session = bar_session(rows[-1][0])
         if ext_session:
@@ -1454,6 +1487,7 @@ def fetch_quote(symbol, include_prepost=True):
                             if isinstance(meta.get("instrumentType"), str)
                             else ""),
         "quote_ts": _to_float(meta.get("regularMarketTime")),
+        "bar_ts": last_bar_ts,
         "price": float(price),
         "prev_close": float(prev),
         "change_pct": (float(price) / float(prev) - 1.0) * 100.0,
@@ -3475,14 +3509,7 @@ class StockWidget:
     def _rel_time(self):
         if not self._data_ts:
             return "güncelleniyor…"
-        d = int(time.time() - self._data_ts)
-        if d < 60:
-            return "az önce"
-        if d < 3600:
-            return "%d dk önce" % (d // 60)
-        if d < 86400:
-            return "%d sa önce" % (d // 3600)
-        return "%d gün önce" % (d // 86400)
+        return _rel_seconds(time.time() - self._data_ts)
 
     def _ellipsize(self, text, font, max_w):
         try:
@@ -4001,7 +4028,8 @@ class StockWidget:
             elif getattr(self, "stale", False):
                 status = "önbellek · %s" % self._rel_time()
             else:
-                status = "son güncelleme %s" % self._rel_time()
+                age = (time.time() - self._data_ts) if self._data_ts else None
+                status = data_age_text(age, phase)
             c.itemconfig(self.upd_id, text=status)
         except (tk.TclError, AttributeError):
             pass
@@ -4009,7 +4037,17 @@ class StockWidget:
     def apply_data(self, results, offline):
         self.offline = offline
         if results:
-            self._data_ts = time.time()
+            # Durum satırı istek zamanını değil verinin saatini göstersin:
+            # hafta sonu/tatilde aynı Cuma barı tekrar gelse bile "az önce"
+            # yazılmaz. bar_ts son 5 dk barı, quote_ts regularMarketTime.
+            stamps = []
+            for info in results.values():
+                stamp = _to_float(info.get("bar_ts"))
+                if stamp is None:
+                    stamp = _to_float(info.get("quote_ts"))
+                if stamp:
+                    stamps.append(stamp)
+            self._data_ts = max(stamps) if stamps else time.time()
             self.stale = False
         for sym, info in results.items():
             self.last[sym] = info
@@ -5813,7 +5851,7 @@ class StockWidget:
                self._pick_pause_when_closed).pack(side="right",
                                                   padx=(0, s(11)))
 
-        row, last_lbl = add_row(card, "Son güncelleme",
+        row, last_lbl = add_row(card, "Son veri",
                                 self._rel_time(), last=True)
         self._settings_last_lbl = last_lbl
         small_button(row, "Yenile",

@@ -721,6 +721,36 @@ class QuoteParsingTest(unittest.TestCase):
                          sw.THROTTLE_429)
         self.assertEqual(sw._retry_after(None), sw.THROTTLE_429)
 
+    def test_last_bar_timestamp_is_exposed(self):
+        stamps = [calendar.timegm(datetime.datetime(2026, 11, 18, h).timetuple())
+                  for h in (10, 15, 22)]
+        payload = _chart_payload([1.0, 2.0, 3.0], stamps, 3.0, 1.0)
+        with_pre = self._fetch(payload, include_prepost=True)
+        self.assertEqual(with_pre["bar_ts"], float(stamps[-1]))
+        regular = self._fetch(payload, include_prepost=False)
+        self.assertEqual(regular["bar_ts"], float(stamps[1]))
+
+
+class FreshnessTextTest(unittest.TestCase):
+    """Durum satırı istek zamanını değil verinin yaşını göstermeli."""
+
+    def test_fresh_data_counts_as_update(self):
+        self.assertEqual(sw.data_age_text(30), "son güncelleme az önce")
+        self.assertEqual(sw.data_age_text(300), "son güncelleme 5 dk önce")
+
+    def test_old_data_shows_data_age(self):
+        self.assertEqual(sw.data_age_text(3600), "son veri 1 sa önce")
+        self.assertEqual(sw.data_age_text(2 * 86400), "son veri 2 gün önce")
+
+    def test_no_trades_in_extended_session_is_explicit(self):
+        self.assertEqual(sw.data_age_text(2 * 86400, "pre"),
+                         "işlem yok · son veri 2 gün önce")
+        self.assertEqual(sw.data_age_text(30, "pre"),
+                         "son güncelleme az önce")
+
+    def test_unknown_age(self):
+        self.assertEqual(sw.data_age_text(None), "güncelleniyor…")
+
 
 class FetchLoopTest(unittest.TestCase):
     def _app(self):
@@ -857,6 +887,11 @@ class SnapshotTest(unittest.TestCase):
         q = sw.load_snapshot(["AAPL"])[0]["AAPL"]
         self.assertEqual(q["dividends"], [(1700000000.0, 0.25)])
         self.assertEqual(q["splits"], [(1700000001.0, 4.0, 1.0)])
+
+    def test_bar_timestamp_roundtrip(self):
+        sw.save_snapshot({"AAPL": self._quote(bar_ts=1795208400)})
+        q = sw.load_snapshot(["AAPL"])[0]["AAPL"]
+        self.assertEqual(q["bar_ts"], 1795208400.0)
 
     def test_zero_prev_close_rejected(self):
         # Sıfıra bölme değişim yüzdesinde çökme demek

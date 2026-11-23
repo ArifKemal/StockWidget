@@ -82,8 +82,10 @@ Doğrulama zinciri:
 
 `fetch_quote(symbol, include_prepost=True)` **tek** Yahoo chart isteği yapar;
 aynı yanıttan fiyat, gün istatistikleri, spark/OHLC, `marketState`,
-`exchangeTimezoneName`, `regularMarketTime` üretir. `include_prepost=False`
-veya ABD dışı borsa ise `ext_session/ext_price` boştur.
+`exchangeTimezoneName`, `regularMarketTime` üretir. Son 5 dk barının zamanı
+`bar_ts` olarak döner; durum satırı (`data_age_text`) bu yaşı gösterir, istek
+zamanını değil. `include_prepost=False` veya ABD dışı borsa ise
+`ext_session/ext_price` boştur.
 
 ## `StockWidget` çalışma zamanı durumu
 
@@ -111,7 +113,8 @@ ad, para birimi, `offline`, `stale`, aktif alarm türleri ve `tuple(spark)`.
    semboller atlanır, `_retry_after` + küçük jitter uygulanır.
 2. Sonuç `self.queue` → `poll_queue` (200 ms) → `apply_data(results, offline)`.
 3. `apply_data` sırası:
-   - `offline` ve `stale` güncelle;
+   - `offline` ve `stale` güncelle; `_data_ts` `bar_ts`/`quote_ts` en büyüğü
+     (veri zamanı; aynı Cuma barı tekrar gelse bile "az önce" yazılmaz);
    - `self.last`'a yaz, listeden çıkanları buda;
    - `_check_alarms()` (bildirim, çizimden **önce**);
    - otomatik sıralamada `_ordered_symbols() != _view_symbols` ise

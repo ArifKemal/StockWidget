@@ -468,6 +468,17 @@ Klasör düzeni öncesi geri dönüş:
       15 öğe, beklenen 9; düzeltmeyle 9) ve `build/check_badge.py` (geçici):
       yeşil +7.14% → kırmızı -3.61% yenilemesinde rozet solunda eski kodda
       16 artık piksel, düzeltmeyle 0. Testler: 28/28.
+29. **Durum satırı istek zamanı yerine veri zamanı** —
+    - Belirti: hafta sonu/tatilde Cuma'nın PÖ/PS barı tekrar geldiğinde kart
+      "son güncelleme az önce" diyordu; kullanıcı fiyatların güncellenmediğini
+      sanıyordu (istek başarılı, veri 2 günlük).
+    - `fetch_quote` aynı yanıttan son 5 dk barının zamanını `bar_ts` olarak
+      döndürür (ek istek yok); `SNAPSHOT_NUM_FIELDS`'a eklendi.
+    - `apply_data`, `_data_ts`'i `bar_ts`/`quote_ts` en büyüğünden alır.
+      Durum satırı `data_age_text()` ile: 20 dk'dan eski veri "son veri …",
+      PÖ/PS penceresinde bar yoksa "işlem yok · son veri …" yazar.
+    - Ayarlar'daki satır **Son veri** oldu; `i18n` TR/EN kalıpları eklendi.
+    - Testler: `bar_ts` eşlemesi, yaş metinleri, snapshot roundtrip; toplam 139.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat
