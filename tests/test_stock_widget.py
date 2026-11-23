@@ -796,6 +796,16 @@ class DisplayPriceTest(unittest.TestCase):
         self.assertEqual(sw.display_price(self.INFO, False), 3.76)
         self.assertEqual(sw.reference_close(self.INFO, False), 4.23)
 
+    def test_post_session_reference_is_last_close(self):
+        post = {"price": 3.76, "prev_close": 4.23,
+                "ext_session": "post", "ext_price": 3.88}
+        self.assertEqual(sw.reference_close(post), 3.76)
+        # 'Önceki kapanış' etiketi PS'de gerçek önceki günü gösterir.
+        self.assertEqual(sw.previous_close_value(post), 4.23)
+
+    def test_previous_close_label_in_premarket(self):
+        self.assertEqual(sw.previous_close_value(self.INFO), 3.76)
+
     def test_portfolio_stats_follow_displayed_price(self):
         app = sw.StockWidget.__new__(sw.StockWidget)
         app.cfg = {"extended_hours": True,

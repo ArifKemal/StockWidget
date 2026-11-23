@@ -507,8 +507,11 @@ Klasör düzeni öncesi geri dönüş:
       eklendi.
     - `_portfolio_stats`, `_portfolio_by_currency`, satır K/Z, portföy
       düzenleyici ve CSV aynı fiyatı kullanır; ek istek yok.
+    - 1G grafik referans çizgisi/hover tabanı ve detaydaki "Önceki kapanış"
+      satırı da aynı kuralı kullanır (`reference_close`,
+      `previous_close_value`); PÖ'de 4,23 yerine 3,76 görünür.
     - Doğrulama: ONDS 4,07 → PÖ +8,24%, K/Z -53,2%; BRUN 3,90 → +9,55%,
-      K/Z -85,6%; portföy rozeti +8,51% (ağırlıklı). Testler 152.
+      K/Z -85,6%; portföy rozeti +8,51% (ağırlıklı). Testler 154.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

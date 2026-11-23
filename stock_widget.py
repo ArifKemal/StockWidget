@@ -774,6 +774,14 @@ def reference_close(info, extended=True):
     return _to_float(info.get("prev_close"))
 
 
+def previous_close_value(info, extended=True):
+    """'Önceki kapanış' etiketi: PÖ'de son normal kapanış, aksi hâlde prev_close."""
+    info = info or {}
+    if extended and info.get("ext_session") == "pre":
+        return _to_float(info.get("price"))
+    return _to_float(info.get("prev_close"))
+
+
 PORTFOLIO_CSV_HEADER = [
     "Sembol", "Adet", "Ortalama", "Hedef", "Not", "ParaBirimi",
     "Fiyat", "Deger", "Maliyet", "KarZarar", "GunlukDegisim",
@@ -2683,7 +2691,7 @@ class DetailPanel:
             c.create_text((pad + x2) / 2.0, (y1 + y2) / 2.0,
                           text=msg, fill=DIM, font=("Segoe UI", 8))
             return
-        prev = info.get("prev_close")
+        prev = reference_close(info, self.app.cfg.get("extended_hours", True))
         candle = (self.mode == "candle" and len(ohlc) > 1)
         if candle:
             candles = downsample_ohlc(ohlc, 70)
@@ -3085,7 +3093,9 @@ class DetailPanel:
               if day_lo is not None and day_hi is not None else "—"))
         self._range_bar(pad, x2, s(252), day_lo, day_hi, price, col)
         pair(s(274), "Açılış", fmt_money(info.get("open"), cur))
-        pair(s(296), "Önceki kapanış", fmt_money(info.get("prev_close"), cur))
+        pair(s(296), "Önceki kapanış",
+             fmt_money(previous_close_value(
+                 info, self.app.cfg.get("extended_hours", True)), cur))
         pair(s(318), "Hacim", fmt_volume(info.get("volume")))
         lo52, hi52 = info.get("low_52w"), info.get("high_52w")
         pair(s(340), "52 hafta",
