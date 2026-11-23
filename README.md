@@ -88,63 +88,6 @@ olduğu için istek sayısı bilinçli olarak düşük tutulur:
 **Gecikme:** Yahoo verisi gecikmeli olabilir; seans dışı fiyatlar düşük
 likidite nedeniyle normal seanstan sapabilir. Yatırım kararı için kullanmayın.
 
-## Ayarlar
-
-Sağ tık → **Ayarlar…**: görünüm (tema, opaklık, yoğunluk, her zaman üstte,
-konumu sıfırla), veri (yenileme aralıkları, piyasa öncesi/sonrası, kapalıyken
-durdur, gece isteğini durdur, elle yenile), davranış (otomatik başlat, ✕
-davranışı), dil (Türkçe / English) ve gelişmiş (ayar klasörü, tanılama ZIP'i). Değişiklikler anında
-uygulanır; **Sıfırla** yalnızca ayarları varsayılana döndürür (semboller,
-portföy ve otomatik başlatma korunur). Alarmlar ve gruplar silineceği için
-Sıfırla onay ister. Pencerenin altından Semboller, Portföy
-ve Alarmlar pencereleri açılır.
-
-**Sembol ekleme:** büyük/küçük harf fark etmez (`aapl` → `AAPL`).
-`NASDAQ:AAPL` / `BIST:ASELS` gibi borsa önekleri ve `BRK.B` gibi sınıf
-hisseleri de anlaşılır. BIST için `.IS` gerekir: `ASELS` yazınca uygulama
-`ASELS.IS` biçimini kendisi dener; bulunamazsa uyarı gösterir. Kripto
-`BTC-USD`, endeks `^GSPC`, vadeli `ES=F` biçimindedir. Ekleme sırasında
-en fazla iki doğrulama isteği atılır; periyodik yenilemede ek istek yoktur.
-
-<p align="center">
-  <img src="docs/ekran-ayarlar.png" width="430" alt="StockWidget Ayarlar penceresi — tema, veri, davranış ve dil">
-</p>
-
-`%APPDATA%\StockWidget\config.json` (portatif modda `SW_DATA_DIR` altında).
-Bozuk alan uygulamayı kilitlemez, varsayılana döner; dosya hiç okunamazsa
-`config.json.bak` yedeğinden kurtarılır. Yazma atomiktir (geçici dosya + yer
-değiştirme), böylece yarıda kesilse bile eski ayarlar bozulmaz. Bilinmeyen
-anahtarlar korunur; geçersiz sembol/pozisyon satırları sessizce atılır.
-
-| Anahtar | Değer |
-|---|---|
-| `symbols` | Ticker listesi; boşsa varsayılan 5 sembol; en fazla 20, tekrarsız. |
-| `x`, `y` | Kartın konumu; sürükleyince kaydedilir (`null` ise sağ alt köşe). |
-| `theme` | `gece`, `slate`, `grafit`, `acik`. |
-| `opacity` | 0.6–1.0. |
-| `density` | `normal` ya da `compact`. |
-| `always_on_top` | `true` / `false`; varsayılan `true`. |
-| `refresh_open`, `refresh_closed` | Yenileme aralığı (dakika, 1–1440). |
-| `pause_when_closed` | `true` ise hiçbir seans açık değilken istek gönderilmez. |
-| `night_pause` | `true` ise hafta sonu/tatil ve 20:05–04:00 ET arasında istek gönderilmez (elle yenileme hariç). |
-| `extended_hours` | `true` ise piyasa öncesi/sonrası (**PÖ**/**PS**) verisi gösterilir. |
-| `close_to_tray` | `true` ise **✕** tepsiye gizler; `false` ise çıkar. |
-| `positions` | `{ "AAPL": { "qty": 12, "avg": 185.4, "target": 210, "note": "uzun vade" } }` |
-| `alarms` | `{ "AAPL": { "above": 210, "below": 180, "pct": 5, "profit": 20, "loss": 10, "extended": false } }` |
-| `sort_mode` | `manual`, `change`, `symbol` veya `value`. |
-| `portfolio_show_cost` | `true` ise kartta değerin yanında maliyet de görünür. |
-| `hide_portfolio_amount` | `true` ise kartta portföy tutarı maskelenir, yüzde kalır. |
-| `language` | `tr` veya `en` (arayüz; log/CLI değişmez). |
-| `quiet_enabled`, `quiet_start`, `quiet_end` | Sessiz saatler (0–23). |
-| `focus_mode`, `focus_symbol` | Tek sembol odak modu. |
-| `symbol_groups`, `group_filter` | `{ "AAPL": "Teknoloji" }` ve menü filtresi. |
-
-Aynı klasörde `snapshot.json` (son fiyatlar), `update.json` (güncelleme
-önbelleği), `portfolio-history.json` (günlük portföy toplamları),
-`alarm-history.json` ve `series-cache.json` (grafik önbelleği) tutulur.
-Hepsi silinebilir; uygulama yeniden oluşturur. **Ayarlar → Tanılama paketi**
-portföy adet/maliyetini gizleyen bir destek ZIP'i üretir.
-
 ## Lisans
 
 MIT — ayrıntılar için [LICENSE](LICENSE). Copyright (c) 2026 Arif Kemal.
