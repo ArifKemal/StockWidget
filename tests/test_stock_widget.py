@@ -368,7 +368,10 @@ class RowRenderTest(unittest.TestCase):
     def test_row_shows_position_pnl(self):
         w = self._widget()
         w.cfg["positions"] = {"AAA": {"qty": 2, "avg": 100}}
-        w._render_row("AAA", self._info(price=150, change_pct=1.0))
+        # K/Z gösterilen (PÖ/PS) fiyata göre: 150/100 = +50%, 120 değil.
+        w._render_row("AAA", self._info(price=120, ext_price=150,
+                                        change_pct=1.0,
+                                        ext_change_pct=25.0))
         texts = [it for it in w.canvas.items
                  if it["kind"] == "text"
                  and it["opts"].get("text") == "+50.0%"]
@@ -772,6 +775,47 @@ class FreshnessTextTest(unittest.TestCase):
                   "B": {"quote_ts": 200}, "C": {}}
         self.assertEqual(sw.newest_quote_ts(quotes, 1), 200)
         self.assertEqual(sw.newest_quote_ts({}, 42), 42)
+
+
+class DisplayPriceTest(unittest.TestCase):
+    """Portföy/K-Z kartla aynı (PÖ/PS dahil) fiyatı kullanmalı."""
+
+    INFO = {"price": 3.76, "prev_close": 4.23, "ext_session": "pre",
+            "ext_price": 4.05, "currency": "USD"}
+
+    def test_extended_price_wins(self):
+        self.assertEqual(sw.display_price(self.INFO), 4.05)
+        self.assertEqual(sw.reference_close(self.INFO), 3.76)
+
+    def test_regular_session_uses_prev_close(self):
+        info = {"price": 3.90, "prev_close": 3.76}
+        self.assertEqual(sw.display_price(info), 3.90)
+        self.assertEqual(sw.reference_close(info), 3.76)
+
+    def test_disabled_extended_uses_regular(self):
+        self.assertEqual(sw.display_price(self.INFO, False), 3.76)
+        self.assertEqual(sw.reference_close(self.INFO, False), 4.23)
+
+    def test_portfolio_stats_follow_displayed_price(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.cfg = {"extended_hours": True,
+                   "positions": {"A": {"qty": 10, "avg": 5}}}
+        app.last = {"A": dict(self.INFO)}
+        ok, val, cost, day, cur, mixed = app._portfolio_stats()
+        self.assertTrue(ok)
+        self.assertAlmostEqual(val, 40.5)
+        self.assertAlmostEqual(cost, 50.0)
+        self.assertAlmostEqual(day, 2.9)      # 4.05 - 3.76
+        self.assertEqual(cur, "USD")
+        self.assertFalse(mixed)
+
+    def test_csv_uses_extended_price(self):
+        rows = sw.portfolio_csv_rows(
+            {"A": {"qty": 10, "avg": 5}},
+            {"A": dict(self.INFO)})
+        row = rows[0]
+        self.assertAlmostEqual(row[6], 4.05)  # Fiyat
+        self.assertAlmostEqual(row[10], 2.9)  # Günlük değişim
 
 
 class FetchLoopTest(unittest.TestCase):

@@ -499,6 +499,16 @@ Klasör düzeni öncesi geri dönüş:
     - `fetch_quote` artık `ext_price / price - 1` kullanır; kart, detay,
       alarm ve hover aynı değeri görür. Ek istek yok.
     - Test: `test_extended_change_uses_last_regular_close` (4,05/3,76 → +7,71%).
+32. **Portföy ve satır K/Z seans dışı fiyatı izlesin** —
+    - Belirti: kart PÖ +8,24% gösterirken portföy rozeti Cuma'nın -11,86%
+      değerinde kalıyordu; satır K/Z'si de son normal kapanışa göreydi.
+    - `display_price()` (değer/K-Z için `ext_price`) ve `reference_close()`
+      (günlük taban: seans dışında `price`, normal seansta `prev_close`)
+      eklendi.
+    - `_portfolio_stats`, `_portfolio_by_currency`, satır K/Z, portföy
+      düzenleyici ve CSV aynı fiyatı kullanır; ek istek yok.
+    - Doğrulama: ONDS 4,07 → PÖ +8,24%, K/Z -53,2%; BRUN 3,90 → +9,55%,
+      K/Z -85,6%; portföy rozeti +8,51% (ağırlıklı). Testler 152.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

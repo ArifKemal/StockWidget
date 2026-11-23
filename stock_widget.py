@@ -749,6 +749,31 @@ def alarm_quote(info, extended):
     return price, pct
 
 
+def display_price(info, extended=True):
+    """Kartla aynı fiyat: seans dışı veri varsa `ext_price`, yoksa `price`."""
+    info = info or {}
+    price = _to_float(info.get("price"))
+    if extended and info.get("ext_session") in SESSION_LABEL:
+        ext_price = _to_float(info.get("ext_price"))
+        if ext_price is not None:
+            return ext_price
+    return price
+
+
+def reference_close(info, extended=True):
+    """Günlük değişimin tabanı.
+
+    Seans dışı gösterimde son normal kapanış (`price`), normal seansta
+    önceki kapanış (`prev_close`). Yahoo PÖ penceresinde `chartPreviousClose`
+    olarak bir önceki günü verebildiği için `prev_close` taban olamaz.
+    """
+    info = info or {}
+    if (extended and info.get("ext_session") in SESSION_LABEL
+            and _to_float(info.get("ext_price")) is not None):
+        return _to_float(info.get("price"))
+    return _to_float(info.get("prev_close"))
+
+
 PORTFOLIO_CSV_HEADER = [
     "Sembol", "Adet", "Ortalama", "Hedef", "Not", "ParaBirimi",
     "Fiyat", "Deger", "Maliyet", "KarZarar", "GunlukDegisim",
@@ -765,8 +790,8 @@ def portfolio_csv_rows(positions, last):
         qty = _to_float(rec.get("qty")) or 0.0
         avg = _to_float(rec.get("avg")) or 0.0
         info = (last or {}).get(sym) or {}
-        price = _to_float(info.get("price"))
-        prev = _to_float(info.get("prev_close"))
+        price = display_price(info)
+        prev = reference_close(info)
         value = qty * price if price is not None else None
         cost = qty * avg
         pnl = value - cost if value is not None else None
@@ -3592,6 +3617,7 @@ class StockWidget:
 
     def _portfolio_stats(self):
         pos = self.cfg.get("positions") or {}
+        extended = self.cfg.get("extended_hours", True)
         val = cost = day = 0.0
         ok = False
         cur = None
@@ -3606,28 +3632,34 @@ class StockWidget:
             info = self.last.get(sym)
             if qty <= 0 or not info:
                 continue
+            price = display_price(info, extended)
+            ref = reference_close(info, extended)
+            if price is None:
+                continue
             ok = True
             sym_cur = info.get("currency")
             if cur is None:
                 cur = sym_cur
             elif sym_cur and cur and sym_cur != cur:
                 mixed = True
-            val += qty * info["price"]
+            val += qty * price
             cost += qty * avg
-            day += qty * (info["price"] - info["prev_close"])
+            if ref is not None:
+                day += qty * (price - ref)
         return ok, val, cost, day, cur, mixed
 
     def _portfolio_by_currency(self):
         """Para birimi başına toplamlar; karışık portföyde yanlış toplamayı önler."""
         out = {}
+        extended = self.cfg.get("extended_hours", True)
         for sym, rec in (self.cfg.get("positions") or {}).items():
             info = self.last.get(sym)
             if not isinstance(rec, dict) or not info:
                 continue
             qty = _to_float(rec.get("qty"))
             avg = _to_float(rec.get("avg"))
-            price = _to_float(info.get("price"))
-            prev = _to_float(info.get("prev_close"))
+            price = display_price(info, extended)
+            ref = reference_close(info, extended)
             if qty is None or qty <= 0 or avg is None or price is None:
                 continue
             cur = info.get("currency") or "USD"
@@ -3635,7 +3667,8 @@ class StockWidget:
                                           "day": 0.0})
             bucket["value"] += qty * price
             bucket["cost"] += qty * avg
-            bucket["day"] += qty * ((price - prev) if prev else 0.0)
+            if ref is not None:
+                bucket["day"] += qty * (price - ref)
         return out
 
     def _draw_portfolio(self, y):
@@ -3916,7 +3949,7 @@ class StockWidget:
         pl_col = DIM
         qty = _to_float(pos_rec.get("qty"))
         avg = _to_float(pos_rec.get("avg"))
-        base_price = _to_float(info.get("price"))
+        base_price = price_val   # PÖ/PS açıkken gösterilen (seans dışı) fiyat
         if qty and qty > 0 and avg and avg > 0 and base_price is not None:
             pl_pct = (base_price / avg - 1.0) * 100.0
             pl_txt = "%+.1f%%" % pl_pct
@@ -5181,7 +5214,7 @@ class StockWidget:
                     r["pnl"].config(text="", fg=DIM)
                     continue
                 info = self.last.get(sym) or {}
-                price = info.get("price")
+                price = display_price(info, self.cfg.get("extended_hours", True))
                 cost = q * a
                 tc += cost
                 g = groups.setdefault(info.get("currency") or cur,

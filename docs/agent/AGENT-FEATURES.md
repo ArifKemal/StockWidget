@@ -126,6 +126,9 @@ ad, para birimi, `offline`, `stale`, aktif alarm türleri ve `tuple(spark)`.
    - `_snapshot_blob` karşılaştır, yalnızca değiştiyse `save_snapshot`;
    - çevrimdışıysa başarısız satırları soluklaştır;
    - `_update_status`, `_update_portfolio`, açık detayı yenile.
+   Portföy değeri, günlük değişim ve satır K/Z `display_price()` /
+   `reference_close()` kullanır: PÖ/PS açıkken seans dışı fiyat ve son normal
+   kapanış tabanı; böylece kart rozetiyle aynı yönde olur.
 4. `build_ui()` her çağrıda `_view_symbols`, `_render_keys`, `_spark_cache`,
    `_row_photos` temizler. `set_sort_mode` / `_move_symbol` / tema / yoğunluk
    değişimi `build_ui` üzerinden gider.

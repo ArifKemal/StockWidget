@@ -49,7 +49,8 @@ $env:SW_DATA_DIR = "$PWD\veri"
 - **Detay paneli:** **1G / 1H / 1A / 1Y**, çizgi/mum, hacim ve sağ fiyat ekseni,
   temettü/bölünme işaretleri, hedef/maliyet çizgileri; **Esc** ya da **✕** kapatır.
 - **Portföy:** değer, günlük değişim ve pozisyon K/Z; hedef fiyat, not, maliyet,
-  para birimi başına toplam, **CSV** ve yerel portföy geçmişi grafiği. Karttaki
+  para birimi başına toplam, **CSV** ve yerel portföy geçmişi grafiği. PÖ/PS
+  açıkken değer, günlük değişim ve K/Z seans dışı fiyatı izler. Karttaki
   göz düğmesi portföy tutarını gizler; yüzdeler görünür kalır.
 - **Alarm ve düzen:** fiyat, günlük değişim ve maliyete göre kâr/zarar alarmı;
   detay grafiğinde sağ tıkla seviyeden veya **fiyat girerek** alarm (grafik
