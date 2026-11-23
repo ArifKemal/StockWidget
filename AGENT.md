@@ -583,7 +583,13 @@ Klasör düzeni öncesi geri dönüş:
     - Doğrulama: 167 test, ruff/mypy, frozen smoke A/B/C, canlı GUI sembol
       ekleme; kurulu exe 1.1.1'e güncellendi. Etiket `v1.1.1`; Release
       workflow'u onefile exe + portatif ZIP + kurulum paketi üretir.
-      Asset özetleri Release'teki `SHA256SUMS.txt` dosyasındadır.
+    - `v1.1.1` yayınlandı (Release #5, CI #61 başarılı). Assetler:
+      `StockWidget-1.1.1.exe` `sha256:54e10387…` (24.115.645 bayt),
+      `StockWidget-1.1.1-portable.zip` `sha256:61fdc35d…` (24.797.773),
+      `StockWidget-1.1.1-setup.exe` `sha256:faf6bb34…` (18.988.676).
+      İndirilen exe'nin `--version`, `FileVersion` ve `ProductVersion`
+      çıktısı 1.1.1; `SHA256SUMS.txt` üç dosyayla eşleşti; portatif ZIP
+      README, LICENSE ve `docs/` içeriyor.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat
