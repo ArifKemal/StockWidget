@@ -5,6 +5,7 @@ import email.utils
 import json
 import logging
 import os
+import queue
 import shutil
 import tempfile
 import threading
@@ -751,6 +752,12 @@ class FreshnessTextTest(unittest.TestCase):
     def test_unknown_age(self):
         self.assertEqual(sw.data_age_text(None), "güncelleniyor…")
 
+    def test_newest_quote_ts_prefers_latest_bar(self):
+        quotes = {"A": {"bar_ts": 100, "quote_ts": 50},
+                  "B": {"quote_ts": 200}, "C": {}}
+        self.assertEqual(sw.newest_quote_ts(quotes, 1), 200)
+        self.assertEqual(sw.newest_quote_ts({}, 42), 42)
+
 
 class FetchLoopTest(unittest.TestCase):
     def _app(self):
@@ -789,6 +796,70 @@ class FetchLoopTest(unittest.TestCase):
                 ["A", "B", "C"], True)
         self.assertEqual(sorted(results), ["A", "C"])
         self.assertEqual((failures, attempted, backoff), (1, 3, None))
+
+
+class QuietHoursTest(unittest.TestCase):
+    """Gece penceresi: hafta sonu/tatil ve 20:05–04:00 ET."""
+
+    @staticmethod
+    def _et(*args):
+        return datetime.datetime(*args)
+
+    def test_night_window(self):
+        self.assertTrue(sw.us_quiet_hours(self._et(2026, 11, 23, 3, 59)))
+        self.assertFalse(sw.us_quiet_hours(self._et(2026, 11, 23, 4, 0)))
+        self.assertFalse(sw.us_quiet_hours(self._et(2026, 11, 23, 15, 0)))
+        self.assertFalse(sw.us_quiet_hours(self._et(2026, 11, 23, 20, 4)))
+        self.assertTrue(sw.us_quiet_hours(self._et(2026, 11, 23, 20, 5)))
+
+    def test_weekend_and_holiday_are_quiet(self):
+        self.assertTrue(sw.us_quiet_hours(self._et(2026, 11, 21, 12, 0)))
+        self.assertTrue(sw.us_quiet_hours(self._et(2026, 12, 25, 12, 0)))
+
+    def test_initial_stale_is_off_during_night_pause(self):
+        night = self._et(2026, 11, 23, 1, 0)
+        day = self._et(2026, 11, 23, 15, 0)
+        self.assertFalse(sw.initial_stale(True, {"night_pause": True}, night))
+        self.assertTrue(sw.initial_stale(True, {"night_pause": False}, night))
+        self.assertTrue(sw.initial_stale(True, {"night_pause": True}, day))
+        self.assertFalse(sw.initial_stale(False, {"night_pause": True}, night))
+
+
+class NightPauseTest(unittest.TestCase):
+    """Gece duraklatma ağ isteği üretmemeli; elle yenileme bir kez aşmalı."""
+
+    def _app(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app.cfg = {"night_pause": True, "symbols": ["AAPL"]}
+        app._force_refresh = False
+        app.queue = queue.Queue()
+        app._market_active = lambda: False
+        return app
+
+    def test_night_pause_skips_network(self):
+        app = self._app()
+        calls = []
+        app._fetch_symbols = lambda *a, **k: calls.append(1) or ({}, 0, 0, None)
+        with mock.patch.object(sw, "us_quiet_hours", return_value=True):
+            self.assertEqual(app._fetch_cycle(), sw.PAUSE_POLL)
+        self.assertEqual(calls, [])
+
+    def test_manual_refresh_bypasses_night_pause(self):
+        app = self._app()
+        app._force_refresh = True
+        app._fetch_symbols = lambda *a, **k: ({}, 0, 0, None)
+        with mock.patch.object(sw, "us_quiet_hours", return_value=True):
+            app._fetch_cycle()
+        self.assertFalse(app._force_refresh)
+
+    def test_disabled_night_pause_fetches(self):
+        app = self._app()
+        app.cfg["night_pause"] = False
+        calls = []
+        app._fetch_symbols = lambda *a, **k: calls.append(1) or ({}, 0, 0, None)
+        with mock.patch.object(sw, "us_quiet_hours", return_value=True):
+            app._fetch_cycle()
+        self.assertEqual(calls, [1])
 
 
 class VersionSyncTest(unittest.TestCase):

@@ -33,6 +33,7 @@ Bilinmeyen anahtarlar korunur, geçersiz satırlar sessizce atılır.
   "refresh_open": 15,
   "refresh_closed": 60,
   "pause_when_closed": false,
+  "night_pause": true,
   "extended_hours": true,
   "close_to_tray": true,
   "sort_mode": "manual | change | symbol | value",
@@ -110,7 +111,9 @@ ad, para birimi, `offline`, `stale`, aktif alarm türleri ve `tuple(spark)`.
 ## Veri akışı sırası (bozulmaması gereken sıra)
 
 1. `fetch_loop()` → `_fetch_cycle()` → `_fetch_symbols()`; 429'da kalan
-   semboller atlanır, `_retry_after` + küçük jitter uygulanır.
+   semboller atlanır, `_retry_after` + küçük jitter uygulanır. `night_pause`
+   açıkken ve hiçbir piyasa açık değilken `us_quiet_hours()` (hafta sonu/tatil,
+   20:05–04:00 ET) ağ isteği üretmez; `PAUSE_POLL` ile saat kontrol edilir.
 2. Sonuç `self.queue` → `poll_queue` (200 ms) → `apply_data(results, offline)`.
 3. `apply_data` sırası:
    - `offline` ve `stale` güncelle; `_data_ts` `bar_ts`/`quote_ts` en büyüğü

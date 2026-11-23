@@ -479,6 +479,17 @@ Klasör düzeni öncesi geri dönüş:
       PÖ/PS penceresinde bar yoksa "işlem yok · son veri …" yazar.
     - Ayarlar'daki satır **Son veri** oldu; `i18n` TR/EN kalıpları eklendi.
     - Testler: `bar_ts` eşlemesi, yaş metinleri, snapshot roundtrip; toplam 139.
+30. **Gece isteği duraklatma** —
+    - ABD'de 20:05–04:00 ET (ayrıca hafta sonu/tatil) Yahoo yeni 5 dk barı
+      vermez; eski davranışta `refresh_closed` ile gece boyunca boş istek
+      atılıyordu (15 dk aralıkla ~64 istek).
+    - `us_quiet_hours()` saf; `_fetch_cycle`, `night_pause` açık ve
+      `_market_active()` False iken `PAUSE_POLL` döner (60 s, ağ yok).
+      BIST/kripto açıksa `is_open` True olduğu için duraklama uygulanmaz.
+    - Elle **Yenile** (`_force_refresh`) bir kez aşar. Varsayılan açık;
+      Ayarlar → Veri → "Gece isteğini durdur".
+    - Testler: pencere sınırları, hafta sonu/tatil, ağ çağrılmaması,
+      elle yenileme.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

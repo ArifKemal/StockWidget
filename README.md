@@ -90,8 +90,8 @@ likidite nedeniyle normal seanstan sapabilir. Yatırım kararı için kullanmay�
 
 Sağ tık → **Ayarlar…**: görünüm (tema, opaklık, yoğunluk, her zaman üstte,
 konumu sıfırla), veri (yenileme aralıkları, piyasa öncesi/sonrası, kapalıyken
-durdur, elle yenile), davranış (otomatik başlat, ✕ davranışı), dil (Türkçe /
-English) ve gelişmiş (ayar klasörü, tanılama ZIP'i). Değişiklikler anında
+durdur, gece isteğini durdur, elle yenile), davranış (otomatik başlat, ✕
+davranışı), dil (Türkçe / English) ve gelişmiş (ayar klasörü, tanılama ZIP'i). Değişiklikler anında
 uygulanır; **Sıfırla** yalnızca ayarları varsayılana döndürür (semboller,
 portföy ve otomatik başlatma korunur). Pencerenin altından Semboller, Portföy
 ve Alarmlar pencereleri açılır.
@@ -116,6 +116,7 @@ anahtarlar korunur; geçersiz sembol/pozisyon satırları sessizce atılır.
 | `always_on_top` | `true` / `false`; varsayılan `true`. |
 | `refresh_open`, `refresh_closed` | Yenileme aralığı (dakika, 1–1440). |
 | `pause_when_closed` | `true` ise hiçbir seans açık değilken istek gönderilmez. |
+| `night_pause` | `true` ise hafta sonu/tatil ve 20:05–04:00 ET arasında istek gönderilmez (elle yenileme hariç). |
 | `extended_hours` | `true` ise piyasa öncesi/sonrası (**PÖ**/**PS**) verisi gösterilir. |
 | `close_to_tray` | `true` ise **✕** tepsiye gizler; `false` ise çıkar. |
 | `positions` | `{ "AAPL": { "qty": 12, "avg": 185.4, "target": 210, "note": "uzun vade" } }` |

@@ -190,6 +190,7 @@ SETTINGS_DEFAULTS = {
     "refresh_open": 15,
     "refresh_closed": 60,
     "pause_when_closed": False,
+    "night_pause": True,
     "extended_hours": True,
     "close_to_tray": True,
     "sort_mode": "manual",
@@ -534,6 +535,50 @@ def _et_offset_hours(day):
     dst_end = datetime.datetime(year, 11, first_sun_nov, 6, 0)
     probe = datetime.datetime(day.year, day.month, day.day, 12, 0)
     return -4 if dst_start <= probe < dst_end else -5
+
+
+def newest_quote_ts(quotes, fallback=None):
+    """Sembol sözlüğündeki en yeni bar/quote zamanı.
+
+    Durum satırı yaş hesabı ve açılışta snapshot yaşı için tek kaynak.
+    """
+    stamps = []
+    for info in (quotes or {}).values():
+        if not isinstance(info, dict):
+            continue
+        stamp = _to_float(info.get("bar_ts"))
+        if stamp is None:
+            stamp = _to_float(info.get("quote_ts"))
+        if stamp:
+            stamps.append(stamp)
+    return max(stamps) if stamps else fallback
+
+
+def us_quiet_hours(et=None):
+    """ABD'de yeni 5 dk barı beklenmeyen saatler.
+
+    Hafta sonu/tatil ya da 20:05–04:00 ET: Yahoo chart'ta yeni veri olmaz.
+    Gece isteği duraklatma bu pencereyi kullanır; BIST/kripto açıkken
+    `_fetch_cycle` bu kapıya hiç girmez.
+    """
+    et = et or et_now()
+    if et.weekday() >= 5 or is_market_holiday(et.date()):
+        return True
+    minutes = et.hour * 60 + et.minute
+    return minutes >= 20 * 60 + 5 or minutes < 4 * 60
+
+
+def initial_stale(has_cache, cfg, et=None):
+    """Açılışta önbellek bayrağı.
+
+    Gece duraklatması açıkken canlı yanıt saatlerce beklenmeyeceği için
+    önbellek etiketi/dimli satırlar yanıltıcı olur; yaş metni yeterli.
+    """
+    if not has_cache:
+        return False
+    if cfg.get("night_pause", True) and us_quiet_hours(et):
+        return False
+    return True
 
 
 def trading_day(et=None):
@@ -1143,6 +1188,7 @@ def load_config():
     cfg["always_on_top"] = _cfg_bool(cfg, "always_on_top", True)
     cfg["close_to_tray"] = _cfg_bool(cfg, "close_to_tray", True)
     cfg["pause_when_closed"] = _cfg_bool(cfg, "pause_when_closed", False)
+    cfg["night_pause"] = _cfg_bool(cfg, "night_pause", True)
     cfg["extended_hours"] = _cfg_bool(cfg, "extended_hours", True)
     for key in ("refresh_open", "refresh_closed"):
         minutes = _to_int(cfg.get(key), SETTINGS_DEFAULTS[key])
@@ -3062,7 +3108,7 @@ class StockWidget:
         self.alarm_history = load_alarm_history()
         self._alarm_mute_until = 0.0
         self.offline = False
-        self.stale = bool(self.last)   # canlı yanıt gelene kadar: önbellek
+        self.stale = initial_stale(bool(self.last), self.cfg)  # canlı yanıt gelene kadar
         self._hover_row = None
         self._selected_idx = 0
         self._view_symbols = list(self.cfg["symbols"])
@@ -3120,7 +3166,7 @@ class StockWidget:
         self._py = 0
         self._row_photos = {}
         self._chart_photo = None
-        self._data_ts = self._snap_ts
+        self._data_ts = newest_quote_ts(self.last, self._snap_ts)
         self._force_refresh = False
         self._update_busy = False
         self._tray_ok = bool(TRAY_AVAILABLE and PIL_AVAILABLE)
@@ -3484,6 +3530,11 @@ class StockWidget:
 
     def set_pause_when_closed(self, value):
         self.cfg["pause_when_closed"] = bool(value)
+        save_config(self.cfg)
+        self.wake.set()
+
+    def set_night_pause(self, value):
+        self.cfg["night_pause"] = bool(value)
         save_config(self.cfg)
         self.wake.set()
 
@@ -4040,14 +4091,7 @@ class StockWidget:
             # Durum satırı istek zamanını değil verinin saatini göstersin:
             # hafta sonu/tatilde aynı Cuma barı tekrar gelse bile "az önce"
             # yazılmaz. bar_ts son 5 dk barı, quote_ts regularMarketTime.
-            stamps = []
-            for info in results.values():
-                stamp = _to_float(info.get("bar_ts"))
-                if stamp is None:
-                    stamp = _to_float(info.get("quote_ts"))
-                if stamp:
-                    stamps.append(stamp)
-            self._data_ts = max(stamps) if stamps else time.time()
+            self._data_ts = newest_quote_ts(results, time.time())
             self.stale = False
         for sym, info in results.items():
             self.last[sym] = info
@@ -5470,6 +5514,11 @@ class StockWidget:
         self._settings_note("Piyasa kapalıyken yenileme %s."
                             % ("duruyor" if value else "sürüyor"))
 
+    def _pick_night_pause(self, value):
+        self.set_night_pause(value)
+        self._settings_note("Gece isteği %s."
+                            % ("duruyor" if value else "sürüyor"))
+
     def _pick_extended_hours(self, value):
         self.set_extended_hours(value)
         self._settings_note("Piyasa öncesi/sonrası veri %s."
@@ -5851,6 +5900,12 @@ class StockWidget:
                self._pick_pause_when_closed).pack(side="right",
                                                   padx=(0, s(11)))
 
+        row, _ = add_row(card, "Gece isteğini durdur",
+                         "20:05–04:00 ET arası istek yok")
+        switch(row, lambda: self.cfg.get("night_pause", True),
+               self._pick_night_pause).pack(side="right",
+                                            padx=(0, s(11)))
+
         row, last_lbl = add_row(card, "Son veri",
                                 self._rel_time(), last=True)
         self._settings_last_lbl = last_lbl
@@ -6070,10 +6125,12 @@ class StockWidget:
         """Bir tur veri çeker ve bir sonraki turun gecikmesini döndürür."""
         extended = self.cfg.get("extended_hours", True)
         is_open = self._market_active()
-        if (not is_open and self.cfg.get("pause_when_closed")
-                and not self._force_refresh):
-            # Piyasa kapalı ve yenileme duraklatıldı: ağ isteği yok,
-            # yalnızca açılışı yakalamak için saat kontrol edilir.
+        night_stop = (self.cfg.get("night_pause", True)
+                      and us_quiet_hours())
+        if (not is_open and not self._force_refresh
+                and (self.cfg.get("pause_when_closed") or night_stop)):
+            # Piyasa kapalı/gece: ağ isteği yok, yalnızca açılışı yakalamak
+            # için saat kontrol edilir (60 s'de bir, istek üretmez).
             return PAUSE_POLL
         self._force_refresh = False
         symbols = list(self.cfg.get("symbols") or [])
