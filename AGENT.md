@@ -572,6 +572,18 @@ Klasör düzeni öncesi geri dönüş:
     - Canlı doğrulama: `aapl`→AAPL, `asels`→ASELS.IS (2 istek), `BIST:asels`
       →ASELS.IS, `brk.b`→BRK-B, `NASDAQ:AAPL`→AAPL, `ZZZZZZ`→anlaşılır hata.
       Testler 167; `SymbolResolveTest` + genişletilmiş `HelperValidationTest`.
+37. **v1.1.1 sürümü (2026-11-23)** —
+    - 1.1.0'dan bu yana birikenler: sıfırlama onayı, kaldırmada boş klasör
+      temizliği, denetim düzeltmeleri (yarış/EN/güncelleme yedeği), PÖ/PS ve
+      1G referans tabanı, gece isteği duraklatma, sembol ekleme (borsa öneki,
+      BIST `.IS` yedeği, `BRK.B`).
+    - `python tools/bump_version.py 1.1.1`: `APP_VERSION`,
+      `packaging/version_info.txt`, `packaging/installer.iss` güncellendi;
+      README indirme örneği 1.1.1 yapıldı.
+    - Doğrulama: 167 test, ruff/mypy, frozen smoke A/B/C, canlı GUI sembol
+      ekleme; kurulu exe 1.1.1'e güncellendi. Etiket `v1.1.1`; Release
+      workflow'u onefile exe + portatif ZIP + kurulum paketi üretir.
+      Asset özetleri Release'teki `SHA256SUMS.txt` dosyasındadır.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

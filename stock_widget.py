@@ -53,7 +53,7 @@ except ImportError:
 i18n.install_tk_translation()
 
 APP_NAME = "StockWidget"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 FROZEN = bool(getattr(sys, "frozen", False))
 
 UPDATE_URL = ("https://api.github.com/repos/ArifKemal/StockWidget/"

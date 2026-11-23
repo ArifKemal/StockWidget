@@ -38,7 +38,7 @@ kalmasını istersen:
 
 ```powershell
 $env:SW_DATA_DIR = "$PWD\veri"
-.\StockWidget-1.1.0.exe
+.\StockWidget-1.1.1.exe
 ```
 
 ## Özellikler
