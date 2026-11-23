@@ -200,6 +200,8 @@ Ek araçlar:
   Inno derleme, sessiz kurulum → `--version` → sessiz kaldırma + log artifact.
 - `release`: testler, iki derleme, portatif ZIP, SHA256SUMS, CycloneDX
   `sbom.json`, Winget/Scoop manifestleri, GitHub Release asset'leri.
+- `packaging/installer.iss` kaldırmada `[UninstallDelete]` ile `{app}`
+  klasörünü de temizler; ayarlar `%APPDATA%`'da kaldığı için korunur.
 - `ci.yml` `main` + `feature/**` push'larında ve PR'larda çalışır. Eski
   `feature/free-pack` dalı `main`e birleştirildikten sonra silindi; bu not
   geçmiş kaydıdır. Merge öncesi yerel doğrulama yine zorunludur.

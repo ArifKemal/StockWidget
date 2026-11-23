@@ -74,6 +74,9 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 [UninstallRun]
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--quit"; Flags: runhidden; RunOnceId: "StockWidgetQuit"
 
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}"
+
 [Code]
 var
   ShortcutsAllowed: Boolean;
@@ -184,3 +187,4 @@ begin
       ' yazılamıyor.' + #13#10 + 'Programı doğrudan şuradan çalıştırabilirsiniz:' + #13#10 +
       ExpandConstant('{app}\{#MyAppExeName}'), mbInformation, MB_OK, IDOK);
 end;
+

@@ -526,6 +526,26 @@ Klasör düzeni öncesi geri dönüş:
     - Denetim kapsamı: 158 test, ruff/mypy, UI matrisi, frozen smoke A/B/C,
       Inno derlemesi, manifest/bump/screenshot araçları, canlı 1H/1A/1Y,
       takvim profilleri, menü bağlantıları ve stockanalysis fiyat kontrolü.
+34. **Kullanıcıya dönük kalan yolların denetimi (2026-11-23)** —
+    - Tepsi menüsü: gerçek `pystray.Menu`/`MenuItem`, sahte Icon ile 17/17 —
+      Ayarlar, Semboller, Portföy, Gruplar, Alarmlar, Odak, önceki/sonraki,
+      Yenile, sustur/kaldır, otostart, göster/gizle, çıkış. Gerçek simge
+      oluşumu ayrıca `sw.log` "tepsi simgesi: hazır" ile doğrulandı.
+    - `--toggle` sinyali: kaynak kopya + `SW_INSTANCE_SUFFIX=togglesig`;
+      ikinci kopya `--toggle` pencereyi gizledi, tekrar gösterdi; `--quit`
+      birinci kopyayı temiz kapattı (6/6).
+    - `set_startup`: sandbox HKCU anahtarında aç/kapat; değer
+      `app_launch_command()` ile eşleşti, `startup_enabled()` doğru döndü,
+      gerçek `Run\StockWidget` değeri değişmedi.
+    - Sessiz kurulum/yükseltme/kaldırma (ayrı AppId/dizin sandbox): 1.0.9
+      kurulumu → 1.1.0 yükseltmesi → kaldırma; hepsi exit 0, tek kaldırıcı,
+      `DisplayVersion` 1.0.9→1.1.0, Run/kısayollar oluştu ve silindi.
+      Gerçek kurulumun exe hash'i, masaüstü/Başlat kısayolları ve Run değeri
+      değişmedi.
+    - Bulgu/düzeltme: kaldırma boş `{app}` klasörünü bırakıyordu.
+      `[UninstallDelete] Type: filesandordirs; Name: "{app}"` eklendi;
+      sandbox testinde klasör tamamen silindi. Veriler `%APPDATA%`'da
+      olduğu için ayarlar korunur.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat
