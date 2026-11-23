@@ -95,7 +95,8 @@ konumu sıfırla), veri (yenileme aralıkları, piyasa öncesi/sonrası, kapalı
 durdur, gece isteğini durdur, elle yenile), davranış (otomatik başlat, ✕
 davranışı), dil (Türkçe / English) ve gelişmiş (ayar klasörü, tanılama ZIP'i). Değişiklikler anında
 uygulanır; **Sıfırla** yalnızca ayarları varsayılana döndürür (semboller,
-portföy ve otomatik başlatma korunur). Pencerenin altından Semboller, Portföy
+portföy ve otomatik başlatma korunur). Alarmlar ve gruplar silineceği için
+Sıfırla onay ister. Pencerenin altından Semboller, Portföy
 ve Alarmlar pencereleri açılır.
 
 <p align="center">

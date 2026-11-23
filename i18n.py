@@ -213,6 +213,14 @@ _DIRECT: dict[str, str] = {
     "Sağ tık → Sembol ekle ile başla.":
         "Right-click → Add symbol to start.",
     "karışık": "mixed",
+    "Ayarları sıfırla": "Reset settings",
+    "Görünüm, veri ve davranış ayarları varsayılana döner.":
+        "Appearance, data and behavior settings return to defaults.",
+    "Alarmlar ve sembol grupları da silinir.":
+        "Alarms and symbol groups will also be deleted.",
+    "Semboller, portföy ve otomatik başlatma korunur.":
+        "Symbols, portfolio and autostart are kept.",
+    "Devam edilsin mi?": "Continue?",
 }
 
 _PATTERNS: list[tuple[re.Pattern[str], str]] = [

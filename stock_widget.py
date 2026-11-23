@@ -5652,6 +5652,19 @@ class StockWidget:
         save_config(self.cfg)
         self._restore_position()
 
+    def _confirm_reset_settings(self):
+        """Sıfırla düğmesi: alarm/grup kaybını önlemek için onay ister."""
+        parent = (self._settings_dlg
+                  if self._settings_dlg is not None else self.root)
+        title = T("Ayarları sıfırla")
+        message = T(
+            "Görünüm, veri ve davranış ayarları varsayılana döner.\n"
+            "Alarmlar ve sembol grupları da silinir.\n"
+            "Semboller, portföy ve otomatik başlatma korunur.\n\n"
+            "Devam edilsin mi?")
+        if messagebox.askyesno(title, message, parent=parent):
+            self.reset_settings()
+
     def reset_settings(self):
         for key, value in SETTINGS_DEFAULTS.items():
             self.cfg[key] = value
@@ -6037,7 +6050,7 @@ class StockWidget:
         tk.Button(footer, text="Sıfırla", bg=BTN, fg=MUTED, bd=0,
                   activebackground=BTN_HOVER, activeforeground=RED,
                   font=("Segoe UI", 9), cursor="hand2",
-                  command=self.reset_settings).pack(side="left",
+                  command=self._confirm_reset_settings).pack(side="left",
                                                     ipadx=s(12), ipady=s(4))
         small_button(footer, "Semboller…",
                      self.open_symbol_editor).pack(side="left",

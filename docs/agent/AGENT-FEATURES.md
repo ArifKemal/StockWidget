@@ -140,6 +140,10 @@ ad, para birimi, `offline`, `stale`, aktif alarm türleri ve `tuple(spark)`.
 
 - Ana menü: Ayarlar, Sembol ekle/çıkar, Portföy, Alarmlar, Hızlı çıkar,
   Sıralama, Yenile, Güncelleme denetle, Gizle, Çıkış.
+- Ayarlar → **Sıfırla** onay ister (`_confirm_reset_settings`); onaylanırsa
+  `reset_settings` çalışır. Alarmlar ve sembol grupları silinir; semboller,
+  portföy ve otomatik başlatma korunur. `reset_settings` doğrudan çağrılırsa
+  onay sorulmaz (test/otomasyon yolu).
 - `_menu_update_index` **sabit indeks değildir**; menüye satır eklerken
   `m.index("end") + 1` mantığını koru.
 - `row_menu` her sağ tıkta `_build_row_menu(sym)` ile yeniden kurulur:

@@ -546,6 +546,14 @@ Klasör düzeni öncesi geri dönüş:
       `[UninstallDelete] Type: filesandordirs; Name: "{app}"` eklendi;
       sandbox testinde klasör tamamen silindi. Veriler `%APPDATA%`'da
       olduğu için ayarlar korunur.
+35. **Ayarları sıfırlama onayı** —
+    - Sıfırla, `SETTINGS_DEFAULTS` içindeki `alarms` ve `symbol_groups`
+      anahtarlarını da sildiği için yanlışlıkla veri kaybı riski taşıyordu.
+    - `_confirm_reset_settings()` eklendi: "alarmlar ve sembol grupları da
+      silinir; semboller, portföy ve otomatik başlatma korunur" mesajıyla
+      onay ister; Hayır'da hiçbir şey yapılmaz.
+    - `reset_settings()` programatik/test yolu değişmedi. Metinler TR/EN;
+      `ResetConfirmTest` iptal ve onay yollarını doğrular.
 
 ## Doğrulama (kod değişince çalıştır)
 ```bat

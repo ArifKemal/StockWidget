@@ -967,6 +967,34 @@ class ApplyDataRaceTest(unittest.TestCase):
         self.assertEqual(app.last["BBB"]["price"], 2.5)
 
 
+class ResetConfirmTest(unittest.TestCase):
+    """Sıfırla düğmesi alarm/grup silmeden önce onay istemeli."""
+
+    def _app(self):
+        app = sw.StockWidget.__new__(sw.StockWidget)
+        app._settings_dlg = None
+        app.root = mock.Mock()
+        app.reset_settings = mock.Mock()
+        return app
+
+    def test_cancel_keeps_settings(self):
+        app = self._app()
+        with mock.patch.object(sw.messagebox, "askyesno",
+                               return_value=False) as ask:
+            app._confirm_reset_settings()
+        app.reset_settings.assert_not_called()
+        title, message = ask.call_args.args
+        self.assertIn("sıfırla", title.lower())
+        self.assertIn("Alarmlar", message)
+        self.assertIn("portföy", message)
+
+    def test_confirm_resets(self):
+        app = self._app()
+        with mock.patch.object(sw.messagebox, "askyesno", return_value=True):
+            app._confirm_reset_settings()
+        app.reset_settings.assert_called_once()
+
+
 class VersionSyncTest(unittest.TestCase):
     def test_version_files_match(self):
         root = os.path.dirname(os.path.abspath(sw.__file__))
@@ -1965,6 +1993,10 @@ class I18nTest(unittest.TestCase):
         self.assertEqual(
             sw.T("Takip listesi boş.\nSağ tık → Sembol ekle ile başla."),
             "Watchlist is empty.\nRight-click → Add symbol to start.")
+        self.assertEqual(sw.T("Devam edilsin mi?"), "Continue?")
+        self.assertEqual(
+            sw.T("Alarmlar ve sembol grupları da silinir."),
+            "Alarms and symbol groups will also be deleted.")
         sw.i18n.set_language("tr")
         self.assertEqual(sw.T("Yenile"), "Yenile")
 
